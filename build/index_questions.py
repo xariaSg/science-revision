@@ -58,6 +58,23 @@ MIN_MARKS, MAX_MARKS = 1, 3
 # Booklet B states its own total on its first page: "(44 marks)".
 TOTAL_MARKS_RE = re.compile(r"\((\d{2})\s+marks\)", re.I)
 
+# Scenario anchors: the labelled entities a question is *about* ("plant E", "tube A").
+# The marking gate keys on them (CLAUDE.md section 3.3), and speech-to-text needs them
+# too -- unseeded, Whisper renders "plant E" as "Planty" and the anchor is gone.
+ANCHOR_RE = re.compile(
+    r"\b(plant|animal|bird|fish|insect|tube|beaker|container|substance|block|"
+    r"set-?up|zone|bulb|magnet|cylinder|jar|box|ball|spring|liquid|material|"
+    r"object|sample|card|strip|wire|circuit|solution|mixture|seed|leaf|organism)"
+    r"\s+([A-Z])\b")
+
+
+def scenario_anchors(text: str) -> list[str]:
+    seen: dict[str, str] = {}
+    for noun, letter in ANCHOR_RE.findall(re.sub(r"\s+", " ", text)):
+        anchor = f"{noun.lower()} {letter}"
+        seen.setdefault(anchor.lower(), anchor)
+    return sorted(seen.values())
+
 
 def reread_mark(img, word) -> int | None:
     """Re-OCR a single mark token with a digit whitelist.
@@ -215,12 +232,34 @@ def index_paper(work: Path) -> dict:
 
     for entry in questions.values():
         entry["total_marks"] = sum(p["marks"] or 0 for p in entry["parts"])
+        pages_text = " ".join(
+            (work / "ocr" / f"page-{page:03d}.txt").read_text()
+            for page in entry["pages"]
+            if (work / "ocr" / f"page-{page:03d}.txt").exists())
+        entry["scenario_anchors"] = scenario_anchors(pages_text)
 
     counted = sum(q["total_marks"] for q in questions.values())
     stated = stated_total_marks(work, bounds)
     if stated is not None and counted != stated:
-        warnings.append(f"marks add up to {counted} but Booklet B states {stated}; "
-                        f"{stated - counted} unaccounted for")
+        shortfall = stated - counted
+        unknown = [(q, p) for q in questions.values() for p in q["parts"]
+                   if p["marks"] is None and not p.get("is_parent")]
+        # With a single unread allocation the stated total determines it outright.
+        # With several it does not, so leave them for review rather than guessing.
+        if len(unknown) == 1 and MIN_MARKS <= shortfall <= MAX_MARKS:
+            entry, part = unknown[0]
+            part["marks"] = shortfall
+            part["marks_source"] = "inferred_from_total"
+            entry["total_marks"] += shortfall
+            counted += shortfall
+            warnings = [w for w in warnings
+                        if not w.startswith(f"Q{entry['question']}({part['part']}):")]
+            repairs.append(f"Q{entry['question']}({part['part']}): inferred [{shortfall}] "
+                           f"as the only allocation missing from the stated {stated}")
+        else:
+            warnings.append(f"marks add up to {counted} but Booklet B states {stated}; "
+                            f"{shortfall} unaccounted for across "
+                            f"{len(unknown)} unread allocation(s)")
 
     return {
         "year": bounds["year"],

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Science practice</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Science practice</h1>
+    <div class="pickers">
+      <label>Paper <select id="year"></select></label>
+      <label>Question <select id="question"></select></label>
+    </div>
+    <div class="nav">
+      <button id="prev" type="button">‹ Previous</button>
+      <button id="next" type="button">Next ›</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="paper" aria-label="Question paper">
+      <div class="zoom">
+        <button data-zoom="out" type="button">−</button>
+        <span id="zoomLabel">Fit</span>
+        <button data-zoom="in" type="button">+</button>
+      </div>
+      <div id="pages"></div>
+    </section>
+
+    <section id="answers" aria-label="Your answers">
+      <div id="answerHead"></div>
+      <div id="parts"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "psle",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": ["main:app", "--reload", "--app-dir", "app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}
