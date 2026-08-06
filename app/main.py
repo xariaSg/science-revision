@@ -73,6 +73,14 @@ def papers() -> list[dict]:
 @app.get("/api/papers/{year}/questions")
 def questions(year: int) -> dict:
     data = load_questions(year)
+    # Some sub-parts are answered by drawing on the paper. Answering them aloud is
+    # not possible, so the UI needs to know before it offers a microphone.
+    drawn: set[tuple[int, str | None]] = set()
+    rubric_path = RUBRIC_DIR / f"{year}.json"
+    if rubric_path.exists():
+        for rubric in json.loads(rubric_path.read_text())["rubrics"]:
+            if rubric.get("response_mode") == "drawn":
+                drawn.add((rubric["question"], rubric["part"]))
     return {
         "year": data["year"],
         "booklet_b": data["booklet_b"],
@@ -84,6 +92,7 @@ def questions(year: int) -> dict:
                 # Parents of nested sub-parts are headings, not answerable slots.
                 "parts": [
                     {"part": p["part"], "marks": p["marks"],
+                     "drawn": (q["question"], p["part"]) in drawn,
                      "uncertain": p["marks"] is None or p.get("marks_source") == "repair"}
                     for p in q["parts"] if not p.get("is_parent")
                 ],
@@ -191,7 +200,11 @@ def review_queue(year: int) -> dict:
     data = load_rubrics(year)
     signoff = json.loads(REVIEWED_FILE.read_text()) if REVIEWED_FILE.exists() else {}
     decisions = signoff.get(str(year), {})
-    rubrics = [r for r in data["rubrics"] if r.get("chains")]
+    # Drawing questions have no chains by design. They still need a human to
+    # confirm the classification, so they belong in the queue rather than
+    # disappearing from it.
+    rubrics = [r for r in data["rubrics"]
+               if r.get("chains") or r.get("response_mode") == "drawn"]
     for rubric in rubrics:
         decision = decisions.get(f"{rubric['question']}{rubric['part'] or ''}")
         if isinstance(decision, dict):

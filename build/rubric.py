@@ -129,6 +129,7 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
                 "scenario_anchors": before.get("scenario_anchors") or question_anchors(
                     anchors.get(question, []),
                     f"{part['model_answer']} {part['explanation']}"),
+                "response_mode": before.get("response_mode", "spoken"),
                 "chains": before.get("chains", []),
                 "chains_required": before.get("chains_required", 1),
                 "traps": before.get("traps", []),

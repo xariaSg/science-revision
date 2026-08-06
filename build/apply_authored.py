@@ -21,7 +21,7 @@ RUBRIC_DIR = REPO / "rubrics"
 # "noun + capital letter" patterns. Real anchors also include quantities the
 # question turns on ("32 °C", "45 degrees") and entities the scan misses.
 MERGE_FIELDS = ("chains", "chains_required", "mark_model", "topics", "traps",
-                "context_gate", "scenario_anchors")
+                "context_gate", "scenario_anchors", "response_mode")
 
 
 def load_authored(year: int) -> dict:

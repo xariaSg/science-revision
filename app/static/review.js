@@ -57,7 +57,9 @@ function card(rubric) {
     : `${rubric.marks} mark${rubric.marks === 1 ? "" : "s"}`;
   const gate = rubric.context_gate === "general"
     ? `<span class="tag">no scenario gate</span>` : "";
-  const model = rubric.mark_model === "per_chain"
+  const drawn = rubric.response_mode === "drawn";
+  const model = drawn ? `<span class="tag">answered by drawing</span>`
+    : rubric.mark_model === "per_chain"
     ? `<span class="tag">${rubric.chains_required} routes, 1 mark each</span>`
     : `<span class="tag">1 mark per keypoint</span>`;
 
@@ -79,7 +81,11 @@ function card(rubric) {
       </div>
       <div>
         <h4>Rubric</h4>
-        ${rubric.chains.map((c) => chainHTML(c, rubric.mark_model)).join("")}
+        ${drawn
+          ? `<p class="answer">This sub-part is answered by drawing on the paper, so
+             there is nothing to grade from speech. Confirm that is right — approving
+             marks it done rather than missing.</p>`
+          : rubric.chains.map((c) => chainHTML(c, rubric.mark_model)).join("")}
         ${rubric.scenario_anchors.length
           ? `<div class="anchors">anchors: ${rubric.scenario_anchors
               .map((a) => `<code>${a}</code>`).join(" ")}</div>` : ""}

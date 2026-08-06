@@ -28,6 +28,14 @@ def check_rubric(rubric: dict) -> list[str]:
     problems: list[str] = []
     chains = rubric.get("chains") or []
 
+    # Some questions are answered by drawing on the paper — 2025 Q35 says "use a
+    # pencil to complete the circuit". They cannot be spoken, cannot be graded from
+    # a transcript, and must not sit in the queue looking like missing work.
+    if rubric.get("response_mode") == "drawn":
+        if chains:
+            problems.append(f"{label}: marked response_mode=drawn but has chains")
+        return problems
+
     if not chains:
         return [f"{label}: no chains authored"]
 
