@@ -42,7 +42,11 @@ MARKER_ZONE = 0.25
 # How many leading tokens may precede a sub-part label ("34 = (a) Name the...").
 MARKER_LOOKAHEAD = 3
 
-QUESTION_RE = re.compile(r"^(\d{1,2})$")
+# The trailing separator is optional: the full papers OCR the number bare ("37"),
+# while the Booklet B extracts render it with a stop ("37."). Requiring bare digits
+# silently dropped every question in the extracts. The consecutive-number rule below
+# is what keeps this loose pattern from matching body text.
+QUESTION_RE = re.compile(r"^(\d{1,2})\s*[.,]?$")
 SUBPART_RE = re.compile(r"^\(?\s*(i{1,3}|iv|v|[a-h])\s*\)$", re.I)
 ROMAN_PARTS = {"i", "ii", "iii", "iv", "v"}
 MARKS_RE = re.compile(r"\[\s*(\d)\s*]")
@@ -111,45 +115,107 @@ def stated_total_marks(work: Path, bounds: dict) -> int | None:
     return None
 
 
+def choose_question_run(candidates: list[tuple[int, int, int]],
+                        expected: tuple[int, int] | None) -> dict[tuple[int, int], int]:
+    """Pick the real question numbers from all left-margin number candidates.
+
+    Taking the first candidate and then demanding +1 each time is too fragile: the
+    Booklet B cover carries numbered instructions ("1. Please check that your
+    name..."), and on 2022 -- whose extract has no "For questions N to M" line to
+    anchor on -- that swallowed the sequence and left one question out of twelve.
+
+    Real questions form a long consecutive run; noise (page numbers, axis labels,
+    "50 times") does not. So take the longest run, preferring one that starts where
+    Booklet B says it should when that is known.
+    """
+    def longest_from(start_value: int | None) -> list[tuple[int, int, int]]:
+        best: list[tuple[int, int, int]] = []
+        for i, candidate in enumerate(candidates):
+            if start_value is not None and candidate[2] != start_value:
+                continue
+            run = [candidate]
+            for later in candidates[i + 1:]:
+                if later[2] == run[-1][2] + 1:
+                    run.append(later)
+            if len(run) > len(best):
+                best = run
+        return best
+
+    run = longest_from(expected[0]) if expected else []
+    if len(run) < 2:
+        # No usable run from the stated start; fall back to the longest anywhere.
+        unconstrained = longest_from(None)
+        if len(unconstrained) > len(run):
+            run = unconstrained
+    return {(page, line): number for page, line, number in run}
+
+
+REVIEW_MARKS = REPO / "review" / "marks.json"
+
+
+def verified_marks(year: int) -> dict[str, int]:
+    """Human-verified mark allocations for a paper, keyed "29a" / "30b(i)".
+
+    Some allocations are simply not readable: 2024 Q29(a) is printed as a damaged
+    glyph in the scan, so no OCR pass recovers it. A person reads it off the paper
+    once and it is recorded here, in the repo, because work/ is regenerated.
+    """
+    if not REVIEW_MARKS.exists():
+        return {}
+    data = json.loads(REVIEW_MARKS.read_text())
+    return {k: v for k, v in data.get(str(year), {}).items() if isinstance(v, int)}
+
+
 def index_paper(work: Path) -> dict:
     bounds = json.loads((work / "boundaries.json").read_text())
     booklet_b = bounds["booklet_b"]
     expected = expected_question_range(work, bounds)
+    verified = verified_marks(bounds["year"])
 
     questions: dict[int, dict] = {}
     warnings: list[str] = []
     current_q: int | None = None
     current_part: str | None = None
     current_sub: str | None = None
-    first_expected = expected[0] if expected else None
 
-    repairs: list[str] = []
+    # Pass 1: read every page once, and collect left-margin number candidates.
+    pages: dict[int, tuple[list[list], int]] = {}
+    candidates: list[tuple[int, int, int]] = []
     for page in range(booklet_b["start"], booklet_b["end"] + 1):
         words, width, height = page_words(work, page)
         words = [w for w in words
                  if MARGIN_TOP * height <= w.cy <= MARGIN_BOTTOM * height]
         if not words:
             continue
+        lines = group_lines(words)
+        pages[page] = (lines, width)
+        for index, line in enumerate(lines):
+            head = line[0]
+            if head.left > width * MARKER_ZONE:
+                continue
+            match = QUESTION_RE.match(head.text)
+            if match:
+                candidates.append((page, index, int(match.group(1))))
+
+    accepted = choose_question_run(candidates, expected)
+
+    repairs: list[str] = []
+    for page, (lines, width) in pages.items():
         marker_limit = width * MARKER_ZONE
         page_image = None
 
-        for line in group_lines(words):
+        for index, line in enumerate(lines):
             text = " ".join(w.text for w in line)
             consumed = 0
 
             head = line[0]
-            qmatch = QUESTION_RE.match(head.text) if head.left <= marker_limit else None
-            if qmatch:
-                number = int(qmatch.group(1))
-                # Only accept the next number in sequence. Body text regularly opens
-                # with a bare number at the left margin and would otherwise register.
-                wanted = (current_q + 1) if current_q is not None else first_expected
-                if wanted is None or number == wanted:
-                    current_q = number
-                    current_part = current_sub = None
-                    questions[number] = {"question": number, "pages": [page],
-                                         "parts": []}
-                    consumed = 1
+            number = accepted.get((page, index))
+            if number is not None:
+                current_q = number
+                current_part = current_sub = None
+                questions[number] = {"question": number, "pages": [page],
+                                     "parts": []}
+                consumed = 1
 
             if current_q is None:
                 continue
@@ -208,6 +274,19 @@ def index_paper(work: Path) -> dict:
                     warnings.append(
                         f"Q{current_q}({target['part']}): a second mark allocation "
                         f"[{value}] found; keeping [{target['marks']}]")
+
+    # A verified reading always wins over anything OCR produced or inferred.
+    applied: list[str] = []
+    for entry in questions.values():
+        for part in entry["parts"]:
+            key = f"{entry['question']}{part['part'] or ''}"
+            if key in verified and part["marks"] != verified[key]:
+                part["marks"] = verified[key]
+                part["marks_source"] = "verified"
+                part.pop("is_parent", None)
+                applied.append(key)
+    if applied:
+        repairs.append(f"applied verified marks for {', '.join(sorted(applied))}")
 
     numbers = sorted(questions)
     if expected:

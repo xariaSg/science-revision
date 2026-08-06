@@ -27,8 +27,14 @@ WORK_DIR = REPO / "work"
 
 DEFAULT_DPI = 300
 
-# "2024 PSLE Science.pdf" / "2015 PSLE Science.PDF"
-PAPER_RE = re.compile(r"^(?P<year>\d{4})\s+PSLE\s+Science\.pdf$", re.IGNORECASE)
+# "2024 PSLE Science.pdf", "2015 PSLE Science.PDF", and the Booklet B extracts,
+# which kept the original extension and gained another: "2015 PSLE Science.PDF.pdf".
+PAPER_RE = re.compile(r"^(?P<year>\d{4})\s+PSLE\s+Science(?:\.PDF)?\.pdf$",
+                      re.IGNORECASE)
+
+# Booklet B on its own, one file per year. Where these exist there is nothing to
+# detect: the whole file is Booklet B, so questions need no boundary search at all.
+BOOKLET_B_DIR = PAPERS_DIR / "OEQ-Booklet-B"
 
 
 @dataclass
@@ -38,6 +44,15 @@ class Page:
     width: int
     height: int
     text_chars: int
+
+
+def _repo_relative(path: Path) -> Path:
+    """Record the source path relative to the repo when it sits inside it."""
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(REPO)
+    except ValueError:
+        return resolved
 
 
 def discover_papers(papers_dir: Path = PAPERS_DIR) -> dict[int, Path]:
@@ -82,7 +97,7 @@ def unpack(src: Path, year: int, out_dir: Path, dpi: int = DEFAULT_DPI,
 
     manifest = {
         "year": year,
-        "source": str(src.relative_to(REPO)),
+        "source": str(_repo_relative(src)),
         "dpi": dpi,
         "num_pages": doc.page_count,
         "text_layer_chars": sum(p.text_chars for p in pages),
@@ -102,9 +117,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=WORK_DIR)
     parser.add_argument("--overwrite", action="store_true",
                         help="re-render pages that already exist")
+    parser.add_argument("--source", type=Path, default=PAPERS_DIR,
+                        help="directory of paper PDFs")
+    parser.add_argument("--booklet-b-only", action="store_true",
+                        help="the source files are Booklet B alone; write a "
+                             "boundaries.json covering the whole file instead of "
+                             "detecting one")
     args = parser.parse_args(argv)
 
-    papers = discover_papers()
+    papers = discover_papers(args.source)
     if not papers:
         print(f"no papers found in {PAPERS_DIR}", file=sys.stderr)
         return 1
@@ -119,6 +140,23 @@ def main(argv: list[str] | None = None) -> int:
     for year in years:
         manifest = unpack(papers[year], year, args.out / str(year),
                           dpi=args.dpi, overwrite=args.overwrite)
+        if args.booklet_b_only:
+            # No detection to do or to get wrong: the file is Booklet B end to end.
+            (args.out / str(year) / "boundaries.json").write_text(json.dumps({
+                "year": year,
+                "num_pages": manifest["num_pages"],
+                "booklet_a": None,
+                "booklet_b": {"start": 1, "end": manifest["num_pages"],
+                              "cover": 1, "stated_printed_pages": None},
+                "answers": None,
+                "blank_pages": [],
+                "confidence": "high",
+                "checks": [{"check": "booklet_b_only_source", "ok": True,
+                            "detail": "whole file is Booklet B; nothing detected"}],
+                "warnings": [],
+                "needs_human_review": False,
+            }, indent=2))
+
         chars = manifest["text_layer_chars"]
         note = f"  [text layer: {chars:,} chars]" if chars else ""
         print(f"{year}: {manifest['num_pages']} pages @ {args.dpi} dpi "

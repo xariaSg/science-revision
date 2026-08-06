@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "Human-verified mark allocations, applied by build/index_questions.py.",
+    "These exist because some allocations cannot be read automatically: 2024",
+    "Q29(a) is printed as a damaged glyph in the scan itself, not a digit.",
+    "This file is committed on purpose. work/ is gitignored and regenerated, so",
+    "a verified reading recorded only there would be lost on the next rebuild.",
+    "Keys are question number + part label, e.g. '29a', '30b(i)'."
+  ],
+  "2024": {
+    "29a": 2,
+    "35d": 1,
+    "36d": 1,
+    "37a": 1
+  }
+}

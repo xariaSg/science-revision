@@ -11,9 +11,16 @@ from index_questions import (  # noqa: E402
 )
 
 
-def test_question_number_is_bare_digits():
+def test_question_number_with_or_without_trailing_stop():
+    """Full papers OCR "37" bare; the Booklet B extracts render it as "37."."""
     assert QUESTION_RE.match("32").group(1) == "32"
-    assert QUESTION_RE.match("32.") is None
+    assert QUESTION_RE.match("37.").group(1) == "37"
+    assert QUESTION_RE.match("21,").group(1) == "21"
+
+
+def test_question_number_rejects_non_numbers():
+    assert QUESTION_RE.match("32a") is None
+    assert QUESTION_RE.match("(3)") is None
 
 
 def test_subpart_labels():

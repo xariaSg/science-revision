@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from db import init_db, list_attempts, save_attempt
@@ -170,4 +170,38 @@ def attempts(year: int | None = None, question: int | None = None) -> list[dict]
     return list_attempts(year=year, question=question)
 
 
-app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+@app.get("/", include_in_schema=False)
+def index() -> HTMLResponse:
+    """Serve the shell with asset URLs versioned by file mtime.
+
+    No build step means no content-hashed filenames, so an edited style.css or
+    app.js can sit in the browser cache indefinitely and present as a bug in the
+    app -- a stale stylesheet is what made the answer boxes look like they had
+    failed to render. Stamping the mtime makes every edit a new URL.
+    """
+    html = (STATIC_DIR / "index.html").read_text()
+    for asset in ("style.css", "app.js"):
+        path = STATIC_DIR / asset
+        if path.exists():
+            html = html.replace(f"/{asset}", f"/{asset}?v={int(path.stat().st_mtime)}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+class NoCacheStatic(StaticFiles):
+    """Serve the frontend without caching.
+
+    There is no build step and no cache-busting filenames, so a browser that holds
+    on to style.css or app.js shows stale behaviour that looks exactly like a bug in
+    the app. On localhost, for one user, re-reading a few small files costs nothing.
+    """
+
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        return False
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+
+
+app.mount("/", NoCacheStatic(directory=STATIC_DIR, html=True), name="static")

@@ -61,9 +61,6 @@ main {
   align-items: start;
 }
 
-@media (max-width: 1000px) {
-  main { grid-template-columns: 1fr; }
-}
 
 section {
   background: var(--panel);
@@ -163,3 +160,13 @@ textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--acce
 .selfmark button.picked { background: var(--good); border-color: var(--good); color: #fff; }
 
 .empty { color: var(--muted); font-size: 14px; padding: 20px 0; text-align: center; }
+
+/* Responsive overrides live at the end: they target the same ids as the rules
+   above at equal specificity, so they only win by coming later. */
+@media (max-width: 1000px) {
+  /* Stacked, the paper pane would fill the window and push every answer box below
+     the fold — which reads as the answer slots having failed to render. Cap it so
+     the first slot is visible without hunting for it. */
+  main { grid-template-columns: 1fr; }
+  #pages { max-height: 46vh; }
+}
