@@ -9,6 +9,7 @@ const els = {
   parts: document.getElementById("parts"),
   answerHead: document.getElementById("answerHead"),
   zoomLabel: document.getElementById("zoomLabel"),
+  splitter: document.getElementById("splitter"),
 };
 
 const state = { year: null, questions: [], index: 0, zoom: 100, grading: false };
@@ -446,6 +447,68 @@ function wireRecorder(button, status, box, onTranscript) {
   });
 }
 
+/* ----------------------------------------------------------------- splitter */
+
+// A draggable divider between the paper and the answers. The right balance
+// depends on the question — a dense diagram wants the paper wide, a four-part
+// written answer wants the other side — so it is set per person, not by me, and
+// remembered.
+const SPLIT_MIN = 25;
+const SPLIT_MAX = 70;
+const SPLIT_DEFAULT = 45;
+const SPLIT_KEY = "psle.splitPercent";
+
+function applySplit(percent) {
+  const clamped = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, percent));
+  document.querySelector("main").style.setProperty("--paper-width", `${clamped}%`);
+  els.splitter.setAttribute("aria-valuenow", String(Math.round(clamped)));
+  try { localStorage.setItem(SPLIT_KEY, String(clamped)); } catch { /* private mode */ }
+  return clamped;
+}
+
+function wireSplitter() {
+  const splitter = els.splitter;
+  if (!splitter) return;
+  const main = document.querySelector("main");
+
+  splitter.setAttribute("aria-valuemin", String(SPLIT_MIN));
+  splitter.setAttribute("aria-valuemax", String(SPLIT_MAX));
+  const saved = Number(localStorage.getItem(SPLIT_KEY));
+  applySplit(Number.isFinite(saved) && saved ? saved : SPLIT_DEFAULT);
+
+  const move = (event) => {
+    const rect = main.getBoundingClientRect();
+    applySplit(((event.clientX - rect.left) / rect.width) * 100);
+  };
+  const stop = () => {
+    splitter.classList.remove("dragging");
+    document.body.classList.remove("resizing");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", stop);
+  };
+
+  splitter.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    splitter.classList.add("dragging");
+    document.body.classList.add("resizing");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  });
+
+  // Double-click restores the default rather than leaving someone stuck with a
+  // pane they dragged to the edge.
+  splitter.addEventListener("dblclick", () => applySplit(SPLIT_DEFAULT));
+
+  splitter.addEventListener("keydown", (event) => {
+    const step = event.key === "ArrowLeft" ? -2 : event.key === "ArrowRight" ? 2 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const current = parseFloat(
+      getComputedStyle(main).getPropertyValue("--paper-width")) || SPLIT_DEFAULT;
+    applySplit(current + step);
+  });
+}
+
 /* -------------------------------------------------------------------- setup */
 
 function selectQuestion(index) {
@@ -486,6 +549,7 @@ async function init() {
     .map((p) => `<option value="${p.year}">${p.year}</option>`).join("");
   els.year.addEventListener("change", () => loadPaper(Number(els.year.value)));
   els.question.addEventListener("change", () => selectQuestion(Number(els.question.value)));
+  wireSplitter();
   els.prev.addEventListener("click", () => selectQuestion(state.index - 1));
   els.next.addEventListener("click", () => selectQuestion(state.index + 1));
   for (const button of document.querySelectorAll("[data-zoom]")) {

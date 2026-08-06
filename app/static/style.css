@@ -55,11 +55,46 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 main {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.8fr);
-  gap: 12px;
+  /* paper | splitter | answers. The paper width is the draggable value; the
+     answers pane takes the rest, so it grows as the paper shrinks. Answers get
+     the larger share by default — that is where the work happens. */
+  grid-template-columns: var(--paper-width, 45%) 10px minmax(0, 1fr);
+  gap: 0;
   padding: 10px 12px 24px;
   align-items: start;
 }
+
+#splitter {
+  align-self: stretch;
+  min-height: 200px;
+  cursor: col-resize;
+  position: relative;
+  border-radius: 999px;
+  touch-action: none;
+}
+/* Widen the grab target beyond the visible line — a 10px hit area is fiddly. */
+#splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -5px;
+}
+#splitter::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background 0.15s ease;
+}
+#splitter:hover::after,
+#splitter:focus-visible::after,
+#splitter.dragging::after { background: var(--accent); }
+#splitter:focus-visible { outline: none; }
+body.resizing { cursor: col-resize; user-select: none; }
 
 
 section {
@@ -169,6 +204,8 @@ textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--acce
      the first slot is visible without hunting for it. */
   main { grid-template-columns: 1fr; }
   #pages { max-height: 50vh; }
+  /* No horizontal split to drag when the panes are stacked. */
+  #splitter { display: none; }
 }
 
 /* ---------------------------------------------------------------- review UI */
