@@ -1,0 +1,7 @@
+# Track 1 — offline ingestion pipeline.
+# Needs the tesseract binary on PATH as well: brew install tesseract
+pymupdf==1.28.0
+pillow==12.3.0
+pytesseract==0.3.13
+
+pytest==9.1.1

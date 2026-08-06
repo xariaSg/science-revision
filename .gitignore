@@ -1,0 +1,19 @@
+# Source exam archives — © MOE / SEAB. Never committed. See CLAUDE.md §2.1.
+papers/
+
+# Generated content bundle — derived from copyrighted material. Never committed.
+bundle/
+work/
+
+# Attempt log (contains a child's practice data)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# macOS
+.DS_Store
