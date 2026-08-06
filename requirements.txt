@@ -4,6 +4,11 @@ pymupdf==1.28.0
 pillow==12.3.0
 pytesseract==0.3.13
 
+# macOS Vision OCR — local, and far more accurate on these scans than tesseract.
+# macOS only; the tesseract path above remains the fallback elsewhere.
+pyobjc-framework-Vision==12.2.1
+pyobjc-framework-Quartz==12.2.1
+
 # Track 2 — the app.
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
