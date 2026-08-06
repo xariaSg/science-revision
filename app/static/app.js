@@ -124,13 +124,34 @@ function partCard(question, part, index) {
           <p>No answer was extracted for this part — check the answer pages yourself.</p>`;
         return;
       }
-      const crop = match.crops && match.crops[0]
-        ? `<img src="${match.crops[0]}" alt="Answer for part ${match.part || ""}">` : "";
+      // Text, not a crop of the answer page. The crop was right while the OCR
+      // text was an unreliable draft; the Vision extraction that replaced it is
+      // accurate, and text reflows, is selectable, and separates the two fields.
       model.innerHTML = `<h4>Suggested answer</h4>
-        ${crop}
+        <p class="answer-text">${match.text || "<em>none extracted</em>"}</p>
+        ${match.flagged
+          ? `<div class="caveat">This answer is flagged as doubtful${
+              match.flag_reason ? `: ${match.flag_reason}` : ""}.</div>`
+          : ""}
+        ${match.explanation
+          ? `<button class="why" type="button">Why?</button>
+             <div class="explanation" hidden>
+               <h4>Why</h4><p>${match.explanation}</p>
+             </div>` : ""}
         <div class="caveat">This is a publisher's suggested answer, not the official
         SEAB marking scheme. If your wording differs but your science is right,
         you may still have the mark.</div>`;
+
+      // The explanation teaches the principle; it is held back so the student
+      // reads the answer and marks themselves first (CLAUDE.md 1.5).
+      const why = model.querySelector(".why");
+      if (why) {
+        why.addEventListener("click", () => {
+          const box = model.querySelector(".explanation");
+          box.hidden = !box.hidden;
+          why.textContent = box.hidden ? "Why?" : "Hide why";
+        });
+      }
       model.append(selfMarkRow(part, (value) => { selfMark = value; }));
       model.append(flagRow(question, part));
       card.classList.add("done");

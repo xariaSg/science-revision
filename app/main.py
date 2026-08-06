@@ -34,6 +34,27 @@ RUBRIC_DIR = REPO / "rubrics"
 FLAGS_FILE = REPO / "review" / "flags.json"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+def _load_env_file(path: Path = REPO / ".env") -> None:
+    """Read .env into the environment before anything reads a key from it.
+
+    Kept to a few lines rather than a dependency: this is one file, read once, on
+    a local single-user app. Values already set in the real environment win, so
+    an exported key still overrides the file.
+    """
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file()
+
 app = FastAPI(title="PSLE Booklet B")
 
 
@@ -119,33 +140,36 @@ def page_image(year: int, page: int) -> FileResponse:
 
 @app.get("/api/papers/{year}/answers/{question}")
 def answer(year: int, question: int) -> dict:
-    """The suggested answer, requested explicitly after an attempt."""
-    path = paper_dir(year) / "answers" / "segments.json"
+    """The suggested answer, requested explicitly after an attempt.
+
+    Served as text from the rubrics rather than as image crops of the answer page.
+    The crops came from the tesseract pass and were the only trustworthy form back
+    when the OCR text was a draft full of errors; the Vision extraction that
+    replaced it is accurate, so text is now both correct and more useful — it
+    reflows, it is selectable, and it separates the model answer from the
+    explanation, which the crop could not.
+
+    The explanation is returned as its own field so the UI can hold it back until
+    after the mark: the model answer drives the marking, the explanation drives the
+    teaching (CLAUDE.md 1.5).
+    """
+    path = RUBRIC_DIR / f"{year}.json"
     if not path.exists():
         raise HTTPException(404, "no answers extracted for this paper")
     data = json.loads(path.read_text())
-    entry = next((q for q in data["questions"] if q["question"] == question), None)
-    if entry is None:
-        raise HTTPException(404, f"no answer segmented for Q{question}")
+    parts = [r for r in data["rubrics"] if r["question"] == question]
+    if not parts:
+        raise HTTPException(404, f"no answer for Q{question}")
     return {
         "question": question,
         "source": data.get("source", "EPH suggested answer"),
-        "draft_only": data.get("ocr_draft_only", True),
-        "parts": [{"part": p["part"], "text": p["ocr_draft"],
-                   "crops": [f"/api/papers/{year}/answers/{question}/crop/"
-                             f"{Path(c).name}" for c in p.get("crops", [])]}
-                  for p in entry["parts"]],
+        "parts": [{"part": r["part"],
+                   "text": r.get("model_answer", ""),
+                   "explanation": r.get("explanation", ""),
+                   "flagged": bool(r.get("flagged")),
+                   "flag_reason": r.get("flag_reason", "")}
+                  for r in parts],
     }
-
-
-@app.get("/api/papers/{year}/answers/{question}/crop/{name}")
-def answer_crop(year: int, question: int, name: str) -> FileResponse:
-    if "/" in name or ".." in name:
-        raise HTTPException(400, "bad crop name")
-    path = paper_dir(year) / "answers" / "crops" / name
-    if not path.exists():
-        raise HTTPException(404, "crop not found")
-    return FileResponse(path, media_type="image/png")
 
 
 @app.post("/api/transcribe")

@@ -274,3 +274,9 @@ main.single { grid-template-columns: 1fr; }
 /* Coaching only — deliberately quieter than everything above. */
 .conventions { margin-top: 12px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
 .conventions ul { margin: 4px 0 0; padding-left: 18px; }
+
+.answer-text { margin: 0 0 10px; font-size: 15.5px; line-height: 1.6; background: #fff; border-radius: 8px; padding: 10px 12px; }
+.why { font-size: 13px; padding: 4px 10px; }
+.explanation { margin-top: 8px; background: #fff; border-radius: 8px; padding: 9px 12px; font-size: 14.5px; }
+.explanation h4 { margin: 0 0 4px; }
+.explanation p { margin: 0; }
