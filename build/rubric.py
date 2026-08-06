@@ -21,6 +21,8 @@ import json
 import sys
 from pathlib import Path
 
+from syllabus import out_of_scope_from_2026, themes_for, unmapped
+
 REPO = Path(__file__).resolve().parent.parent
 WORK_QUESTIONS = REPO / "work"
 WORK_ANSWERS = REPO / "work-ans"
@@ -119,6 +121,9 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
                 "marks": allocation,
                 "syllabus_era": "2023" if year >= SYLLABUS_2023_FROM else "pre-2023",
                 "topics": before.get("topics", []),
+                "themes": themes_for(before.get("topics", [])),
+                "out_of_scope_from_2026": out_of_scope_from_2026(
+                    before.get("topics", [])),
                 "scenario_anchors": before.get("scenario_anchors") or question_anchors(
                     anchors.get(question, []),
                     f"{part['model_answer']} {part['explanation']}"),
@@ -159,6 +164,13 @@ def main(argv: list[str] | None = None) -> int:
         existing = json.loads(target.read_text()) if target.exists() else None
         data = scaffold(year, args.questions_root, args.answers_root, existing)
         target.write_text(json.dumps(data, indent=2))
+        stray = unmapped([t for r in data["rubrics"] for t in r["topics"]])
+        if stray:
+            print(f"    WARN topics with no syllabus theme: {stray}")
+        retired = sorted({f"Q{r['question']}{r['part'] or ''}"
+                          for r in data["rubrics"] if r["out_of_scope_from_2026"]})
+        if retired:
+            print(f"    NOTE out of scope from 2026 (Cells removed): {retired}")
         authored = sum(1 for r in data["rubrics"] if r["chains"])
         reviewed = sum(1 for r in data["rubrics"] if r["reviewed"])
         print(f"{year}: {len(data['rubrics'])} rubrics scaffolded, "
