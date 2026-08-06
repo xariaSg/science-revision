@@ -1,0 +1,10 @@
+{
+  "_comment": [
+    "Per-rubric sign-off, written by the review UI at /review.",
+    "A rubric is only reviewed when a human has read it against the question and",
+    "the suggested answer. Nothing reaches the student with reviewed: false.",
+    "Committed on purpose: it records decisions, not copyrighted content, and",
+    "rubrics/ is regenerated.",
+    "Keys are question number + part label, e.g. '29a', '30b(i)'."
+  ]
+}

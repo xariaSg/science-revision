@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -27,6 +28,8 @@ from stt import transcribe_bytes, model_name
 
 REPO = Path(__file__).resolve().parent.parent
 WORK_DIR = REPO / "work"
+RUBRIC_DIR = REPO / "rubrics"
+REVIEWED_FILE = REPO / "review" / "reviewed.json"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(title="PSLE Booklet B")
@@ -170,6 +173,67 @@ def attempts(year: int | None = None, question: int | None = None) -> list[dict]
     return list_attempts(year=year, question=question)
 
 
+def load_rubrics(year: int) -> dict:
+    path = RUBRIC_DIR / f"{year}.json"
+    if not path.exists():
+        raise HTTPException(404, f"no rubrics for {year}; run build/rubric.py")
+    return json.loads(path.read_text())
+
+
+@app.get("/api/review/{year}")
+def review_queue(year: int) -> dict:
+    """Rubrics to sign off, authored ones first — those are what can be reviewed."""
+    data = load_rubrics(year)
+    rubrics = [r for r in data["rubrics"] if r.get("chains")]
+    return {
+        "year": year,
+        "total": len(data["rubrics"]),
+        "authored": len(rubrics),
+        "reviewed": sum(1 for r in rubrics if r.get("reviewed")),
+        "source": data.get("source"),
+        "rubrics": rubrics,
+    }
+
+
+@app.post("/api/review/{year}")
+def review_signoff(year: int, payload: dict) -> dict:
+    """Record a human decision about one rubric.
+
+    Written to review/reviewed.json rather than into rubrics/, which is
+    regenerated and gitignored — the decision is the thing worth keeping.
+    """
+    part = payload.get("part")
+    question = payload.get("question")
+    if question is None:
+        raise HTTPException(400, "question is required")
+    key = f"{question}{part or ''}"
+
+    REVIEWED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(REVIEWED_FILE.read_text()) if REVIEWED_FILE.exists() else {}
+    entries = data.setdefault(str(year), {})
+    if payload.get("approved"):
+        entries[key] = {
+            "approved": True,
+            "note": (payload.get("note") or "").strip(),
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+    else:
+        # "Needs work" is recorded too: an unreviewed rubric and one a human
+        # rejected are different states, and the second should not be forgotten.
+        entries[key] = {
+            "approved": False,
+            "note": (payload.get("note") or "").strip(),
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+    REVIEWED_FILE.write_text(json.dumps(data, indent=2))
+    return {"key": key, **entries[key]}
+
+
+@app.get("/review", include_in_schema=False)
+def review_page() -> HTMLResponse:
+    return _shell("review.html")
+
+
 @app.get("/", include_in_schema=False)
 def index() -> HTMLResponse:
     """Serve the shell with asset URLs versioned by file mtime.
@@ -179,8 +243,12 @@ def index() -> HTMLResponse:
     app -- a stale stylesheet is what made the answer boxes look like they had
     failed to render. Stamping the mtime makes every edit a new URL.
     """
-    html = (STATIC_DIR / "index.html").read_text()
-    for asset in ("style.css", "app.js"):
+    return _shell("index.html")
+
+
+def _shell(name: str) -> HTMLResponse:
+    html = (STATIC_DIR / name).read_text()
+    for asset in ("style.css", "app.js", "review.js"):
         path = STATIC_DIR / asset
         if path.exists():
             html = html.replace(f"/{asset}", f"/{asset}?v={int(path.stat().st_mtime)}")

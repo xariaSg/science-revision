@@ -30,6 +30,22 @@ RUBRIC_DIR = REPO / "rubrics"
 # tagged so the student can filter them out (CLAUDE.md section 5).
 SYLLABUS_2023_FROM = 2023
 
+REVIEWED_FILE = REPO / "review" / "reviewed.json"
+
+
+def reviewed_signoff(year: int) -> dict[str, dict]:
+    """Per-rubric sign-off recorded by the review UI.
+
+    Kept outside rubrics/ because that file is regenerated and gitignored, while a
+    human decision about whether a rubric is safe to put in front of a child is the
+    most valuable thing in this pipeline.
+    """
+    if not REVIEWED_FILE.exists():
+        return {}
+    data = json.loads(REVIEWED_FILE.read_text())
+    entries = data.get(str(year), {})
+    return {k: v for k, v in entries.items() if isinstance(v, dict)}
+
 
 def rubric_id(year: int, question: int) -> str:
     return f"{year}_Q{question}"
@@ -69,6 +85,7 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
     inventory = json.loads((questions_root / str(year) / "questions.json").read_text())
     answers = json.loads((answers_root / str(year) / "answers.json").read_text())
     verified = verified_marks(year)
+    signoff = reviewed_signoff(year)
 
     marks: dict[tuple[int, str | None], int | None] = {}
     anchors: dict[int, list[str]] = {}
@@ -111,7 +128,10 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
                 "model_answer": part["model_answer"],
                 "explanation": part["explanation"],
                 "source": answers.get("source", "EPH suggested answer"),
-                "reviewed": before.get("reviewed", False),
+                "reviewed": bool(
+                    signoff.get(f"{question}{part['part'] or ''}", {}).get("approved")),
+                "review_note": signoff.get(
+                    f"{question}{part['part'] or ''}", {}).get("note") or "",
             })
 
     return {

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rubric review</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="review">
+  <header>
+    <h1>Rubric review</h1>
+    <div class="pickers">
+      <label>Paper <select id="year"></select></label>
+    </div>
+    <div class="nav">
+      <span id="progress" class="status"></span>
+      <a href="/" class="linkbtn">Practice app →</a>
+    </div>
+  </header>
+
+  <main class="single">
+    <section>
+      <p class="hint">
+        Check each rubric against the question and the suggested answer. Approve only
+        if a marker following it would award the right marks — the student never sees
+        an unapproved rubric. These are a publisher's answers, not the official SEAB
+        marking scheme, so disagreeing with one is a legitimate outcome.
+      </p>
+      <div id="queue"></div>
+    </section>
+  </main>
+
+  <script src="/review.js"></script>
+</body>
+</html>
