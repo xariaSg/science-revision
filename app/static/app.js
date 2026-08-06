@@ -67,6 +67,31 @@ function renderQuestion() {
       &middot; page ${question.pages.join(", ")}</div>`;
 
   question.parts.forEach((part, i) => els.parts.append(partCard(question, part, i)));
+
+  const totalCard = document.createElement("div");
+  totalCard.className = "papertotal";
+  totalCard.id = "papertotal";
+  els.parts.append(totalCard);
+  refreshScore();
+}
+
+// Paper total, from the attempt log rather than this session, so it survives a
+// reload and reflects the best attempt at each sub-part.
+async function refreshScore() {
+  const el = document.getElementById("papertotal");
+  if (!el || !state.year) return;
+  try {
+    const s = await getJSON(`/api/papers/${state.year}/score`);
+    const pct = s.available ? Math.round((s.earned / s.available) * 100) : 0;
+    const done = s.slots ? Math.round((s.attempted / s.slots) * 100) : 0;
+    el.innerHTML = `
+      <div class="pt-head">${state.year} paper total</div>
+      <div class="pt-score">${s.earned} <span>/ ${s.available}</span></div>
+      <div class="pt-bar"><div class="pt-fill" style="width:${pct}%"></div></div>
+      <div class="pt-meta">${s.attempted} of ${s.slots} parts attempted (${done}%)</div>`;
+  } catch {
+    el.innerHTML = "";
+  }
 }
 
 function partCard(question, part, index) {
@@ -152,7 +177,7 @@ function partCard(question, part, index) {
           why.textContent = box.hidden ? "Why?" : "Hide why";
         });
       }
-      model.append(selfMarkRow(part, (value) => { selfMark = value; }));
+      model.append(selfMarkRow(part, (value) => { selfMark = value; }, card));
       model.append(flagRow(question, part));
       card.classList.add("done");
     } catch (err) {
@@ -179,6 +204,9 @@ function partCard(question, part, index) {
         const result = await res.json();
         selfMark = result.marks_awarded;
         feedback.innerHTML = feedbackHTML(result);
+        markCorrect(card, result.marks_awarded, result.marks_total);
+        wireCollapse(feedback);
+        refreshScore();
       } catch (err) {
         feedback.innerHTML =
           `<p class="caveat">Could not mark it: ${err.message}. ` +
@@ -211,6 +239,33 @@ function partCard(question, part, index) {
   });
 
   return card;
+}
+
+// A full-marks answer gets a tick on the card itself, so a scan down the column
+// shows what is done without opening each one.
+function markCorrect(card, awarded, total) {
+  const correct = total > 0 && awarded === total;
+  card.classList.toggle("correct", correct);
+  let badge = card.querySelector(".part-head .tickbadge");
+  if (correct && !badge) {
+    badge = document.createElement("span");
+    badge.className = "tickbadge";
+    badge.textContent = "✓";
+    badge.title = "Full marks";
+    card.querySelector(".part-head").append(badge);
+  } else if (!correct && badge) {
+    badge.remove();
+  }
+}
+
+function wireCollapse(feedback) {
+  const toggle = feedback.querySelector(".fbtoggle");
+  const body = feedback.querySelector(".fbbody");
+  if (!toggle || !body) return;
+  toggle.addEventListener("click", () => {
+    body.hidden = !body.hidden;
+    toggle.textContent = body.hidden ? "Show details" : "Hide details";
+  });
 }
 
 // The chain rendered against the student's own reasoning, with the break shown at
@@ -250,10 +305,6 @@ function feedbackHTML(result) {
         result.missed_summary.map((m) => `<li>${m}</li>`).join("")}</ul></div>`
     : "";
 
-  const improved = result.improved_answer
-    ? `<div class="improved"><h4>Your answer, taken all the way</h4>
-       <p>${result.improved_answer}</p></div>` : "";
-
   // Coaching, visually subordinate and explicitly not part of the mark.
   const conventions = result.convention_notes.length
     ? `<div class="conventions"><strong>Wording tips</strong>
@@ -265,11 +316,18 @@ function feedbackHTML(result) {
     ? `<p class="caveat">That answer trailed off — it looks unfinished rather than
        wrong. Have another go at saying the whole thing.</p>` : "";
 
+  const full = result.marks_total > 0 &&
+               result.marks_awarded === result.marks_total;
+
   return `
-    <div class="score${gateFailed ? " zero" : ""}">
-      ${result.marks_awarded} / ${result.marks_total}
+    <div class="fbhead">
+      <div class="score${gateFailed ? " zero" : full ? " full" : ""}">
+        ${full ? "<span class=\"tick\">✓</span> " : ""}${result.marks_awarded} / ${result.marks_total}
+      </div>
+      <button class="fbtoggle" type="button">Hide details</button>
     </div>
-    ${gate}${incomplete}${chains}${missed}${improved}${conventions}`;
+    <div class="fbbody">
+    ${gate}${incomplete}${chains}${missed}${conventions}</div>`;
 }
 
 // Raising a doubt is most useful at the moment it appears — with the answer in
@@ -317,7 +375,7 @@ function flagRow(question, part) {
   return row;
 }
 
-function selfMarkRow(part, onPick) {
+function selfMarkRow(part, onPick, card) {
   const row = document.createElement("div");
   row.className = "selfmark";
   row.innerHTML = `<span>How many marks would you give yourself?</span>`;
@@ -330,6 +388,8 @@ function selfMarkRow(part, onPick) {
       for (const other of row.querySelectorAll("button")) other.classList.remove("picked");
       button.classList.add("picked");
       onPick(value);
+      if (card) markCorrect(card, value, part.marks || 0);
+      refreshScore();
     });
     row.append(button);
   }

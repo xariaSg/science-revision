@@ -194,6 +194,36 @@ async def transcribe(audio: UploadFile = File(...),
             "model": model_name(), "anchors": anchors}
 
 
+@app.get("/api/papers/{year}/score")
+def paper_score(year: int) -> dict:
+    """Marks earned across the whole paper, from the attempt log.
+
+    Best attempt per sub-part, so re-practising a question improves the total
+    rather than dragging it down — the point is what the student can now do.
+    """
+    data = load_questions(year)
+    slots = [(q["question"], p["part"], p["marks"] or 0)
+             for q in data["questions"] for p in q["parts"]
+             if not p.get("is_parent")]
+    available = sum(marks for _, _, marks in slots)
+
+    best: dict[tuple[int, str | None], int] = {}
+    for row in list_attempts(year=year):
+        if row["marks"] is None:
+            continue
+        key = (row["question"], row["part"])
+        best[key] = max(best.get(key, 0), int(row["marks"]))
+
+    earned = sum(best.get((q, part), 0) for q, part, _ in slots)
+    return {
+        "year": year,
+        "earned": earned,
+        "available": available,
+        "attempted": len(best),
+        "slots": len(slots),
+    }
+
+
 @app.get("/api/grading")
 def grading_status() -> dict:
     """Whether grading is available, so the UI can say so before a student tries."""

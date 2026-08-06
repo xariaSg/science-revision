@@ -23,10 +23,10 @@ body {
 
 header {
   display: flex;
-  gap: 20px;
+  gap: 16px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 12px 20px;
+  padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   position: sticky;
@@ -55,9 +55,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 main {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
-  gap: 16px;
-  padding: 16px 20px 40px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.8fr);
+  gap: 12px;
+  padding: 10px 12px 24px;
   align-items: start;
 }
 
@@ -66,7 +66,7 @@ section {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px;
+  padding: 10px;
 }
 
 #paper { position: relative; }
@@ -80,7 +80,7 @@ section {
   color: var(--muted);
 }
 .zoom button { padding: 2px 10px; line-height: 1.4; }
-#pages { overflow: auto; max-height: 82vh; border-radius: 8px; background: #eef0f4; }
+#pages { overflow: auto; max-height: 88vh; border-radius: 8px; background: #eef0f4; }
 #pages img {
   display: block;
   width: 100%;
@@ -168,7 +168,7 @@ textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--acce
      the fold — which reads as the answer slots having failed to render. Cap it so
      the first slot is visible without hunting for it. */
   main { grid-template-columns: 1fr; }
-  #pages { max-height: 46vh; }
+  #pages { max-height: 50vh; }
 }
 
 /* ---------------------------------------------------------------- review UI */
@@ -280,3 +280,24 @@ main.single { grid-template-columns: 1fr; }
 .explanation { margin-top: 8px; background: #fff; border-radius: 8px; padding: 9px 12px; font-size: 14.5px; }
 .explanation h4 { margin: 0 0 4px; }
 .explanation p { margin: 0; }
+
+/* ------------------------------------------------ full marks, collapse, total */
+
+.part.correct { border-color: #bfe0cb; background: #f6fbf8; }
+.tickbadge {
+  margin-left: auto; color: var(--good); font-weight: 700; font-size: 17px;
+  line-height: 1;
+}
+.fbhead { display: flex; align-items: center; gap: 10px; }
+.fbtoggle { margin-left: auto; font-size: 12.5px; padding: 3px 9px; }
+.score.full { color: var(--good); }
+.score .tick { font-size: 22px; }
+
+.papertotal { margin-top: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.papertotal:empty { display: none; }
+.pt-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.pt-score { font-size: 28px; font-weight: 650; line-height: 1.2; }
+.pt-score span { font-size: 17px; font-weight: 400; color: var(--muted); }
+.pt-bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 8px 0 6px; }
+.pt-fill { height: 100%; background: var(--good); border-radius: 999px; transition: width 0.4s ease; }
+.pt-meta { font-size: 12.5px; color: var(--muted); }
