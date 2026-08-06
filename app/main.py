@@ -182,9 +182,22 @@ def load_rubrics(year: int) -> dict:
 
 @app.get("/api/review/{year}")
 def review_queue(year: int) -> dict:
-    """Rubrics to sign off, authored ones first — those are what can be reviewed."""
+    """Rubrics to sign off — only authored ones can be reviewed.
+
+    Sign-off is read from review/reviewed.json rather than from the rubrics file,
+    which only reflects approvals after build/rubric.py re-runs. Reading the
+    derived file made a page refresh show completed review as undone.
+    """
     data = load_rubrics(year)
+    signoff = json.loads(REVIEWED_FILE.read_text()) if REVIEWED_FILE.exists() else {}
+    decisions = signoff.get(str(year), {})
     rubrics = [r for r in data["rubrics"] if r.get("chains")]
+    for rubric in rubrics:
+        decision = decisions.get(f"{rubric['question']}{rubric['part'] or ''}")
+        if isinstance(decision, dict):
+            rubric["reviewed"] = bool(decision.get("approved"))
+            rubric["review_note"] = decision.get("note", "")
+            rubric["reviewed_at"] = decision.get("at")
     return {
         "year": year,
         "total": len(data["rubrics"]),

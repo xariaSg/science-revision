@@ -6,5 +6,62 @@
     "Committed on purpose: it records decisions, not copyrighted content, and",
     "rubrics/ is regenerated.",
     "Keys are question number + part label, e.g. '29a', '30b(i)'."
-  ]
+  ],
+  "2024": {
+    "29a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:28:19+00:00"
+    },
+    "29b(i)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:28:34+00:00"
+    },
+    "29b(ii)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:28:57+00:00"
+    },
+    "30a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:29:57+00:00"
+    },
+    "30b(i)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:00+00:00"
+    },
+    "30b(ii)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:04+00:00"
+    },
+    "31a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:05+00:00"
+    },
+    "31b": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:06+00:00"
+    },
+    "32a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:07+00:00"
+    },
+    "32b": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:09+00:00"
+    },
+    "32c": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T05:30:12+00:00"
+    }
+  }
 }
