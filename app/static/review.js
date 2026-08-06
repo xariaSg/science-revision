@@ -10,12 +10,12 @@ const els = {
 
 // Default to the work queue. Landing on rubrics already signed off buries the
 // ones still needing a decision, which is the whole reason to open this page.
-const state = { year: null, filter: "pending" };
+// Rubrics are approved by default, so the interesting list is what has been
+// flagged — not a backlog of things awaiting a decision nobody has reason to make.
+const state = { year: null, filter: "flagged" };
 
 const FILTERS = {
-  pending: { label: "To review", match: (r) => !r.reviewed && !r.rejected },
-  approved: { label: "Approved", match: (r) => r.reviewed },
-  rejected: { label: "Needs work", match: (r) => r.rejected },
+  flagged: { label: "Flagged", match: (r) => r.flagged },
   all: { label: "All", match: () => true },
 };
 
@@ -51,7 +51,7 @@ function chainHTML(chain, markModel) {
 
 function card(rubric) {
   const el = document.createElement("article");
-  el.className = "rubric" + (rubric.reviewed ? " approved" : "");
+  el.className = "rubric" + (rubric.flagged ? " rejected" : " approved");
 
   const marks = rubric.marks === null ? "marks unknown"
     : `${rubric.marks} mark${rubric.marks === 1 ? "" : "s"}`;
@@ -69,7 +69,7 @@ function card(rubric) {
       <span class="marks">${marks}</span>
       ${model}${gate}
       <span class="spacer"></span>
-      <span class="state">${rubric.reviewed ? "approved" : "not reviewed"}</span>
+      <span class="state">${rubric.flagged ? "flagged" : "in use"}</span>
     </div>
 
     <div class="pair">
@@ -95,46 +95,52 @@ function card(rubric) {
       </div>
     </div>
 
+    ${rubric.flagged && rubric.flag_reason
+      ? `<div class="traps"><strong>Flagged</strong> — ${rubric.flag_reason}
+         ${rubric.flag_source ? `<em>(from ${rubric.flag_source})</em>` : ""}</div>`
+      : ""}
+
     <div class="actions">
-      <button class="approve" type="button">Approve</button>
-      <button class="reject" type="button">Needs work</button>
-      <input class="note" type="text" placeholder="Note (optional — required if it needs work)">
+      <button class="reject" type="button">${rubric.flagged ? "Re-flag" : "Flag"}</button>
+      <button class="approve" type="button" ${rubric.flagged ? "" : "disabled"}>Clear flag</button>
+      <input class="note" type="text" placeholder="What is wrong with it?">
       <span class="saved status"></span>
     </div>`;
 
   const note = el.querySelector(".note");
   const saved = el.querySelector(".saved");
-  if (rubric.review_note) note.value = rubric.review_note;
+  if (rubric.flag_reason) note.value = rubric.flag_reason;
 
-  async function send(approved) {
-    if (!approved && !note.value.trim()) {
+  async function send(clearing) {
+    if (!clearing && !note.value.trim()) {
       saved.textContent = "Say what is wrong with it.";
       note.focus();
       return;
     }
     saved.textContent = "Saving…";
     try {
-      const res = await fetch(`/api/review/${state.year}`, {
+      const res = await fetch(`/api/flags/${state.year}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: rubric.question, part: rubric.part,
-          approved, note: note.value,
+          flagged: !clearing, reason: note.value, source: "review",
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      rubric.reviewed = approved;
-      rubric.rejected = !approved;
-      el.classList.toggle("approved", approved);
-      el.classList.toggle("rejected", !approved);
-      el.querySelector(".state").textContent = approved ? "approved" : "needs work";
+      rubric.flagged = !clearing;
+      rubric.reviewed = clearing;
+      el.classList.toggle("approved", clearing);
+      el.classList.toggle("rejected", !clearing);
+      el.querySelector(".state").textContent = clearing ? "in use" : "flagged";
+      el.querySelector(".approve").disabled = clearing;
       saved.textContent = "Saved.";
       refreshProgress();
-      // Fade the card out of the pending list rather than yanking it away
+      // Fade the card out of the flagged list rather than yanking it away
       // mid-scroll, which loses the reader's place.
-      if (state.filter === "pending") {
+      if (state.filter === "flagged" && clearing) {
         el.classList.add("settled");
-        setTimeout(() => { if (state.filter === "pending") el.remove(); }, 900);
+        setTimeout(() => { if (state.filter === "flagged") el.remove(); }, 900);
       }
     } catch (err) {
       saved.textContent = `Could not save: ${err.message}`;
@@ -159,9 +165,9 @@ function counts() {
 function refreshProgress() {
   const n = counts();
   els.progress.textContent =
-    `${n.approved} approved · ${n.pending} to review` +
-    (n.rejected ? ` · ${n.rejected} need work` : "") +
-    ` · ${queue.total - queue.authored} unauthored`;
+    `${n.all - n.flagged} in use · ${n.flagged} flagged` +
+    (queue.total - queue.authored
+      ? ` · ${queue.total - queue.authored} unauthored` : "");
   const selected = els.filter.value || state.filter;
   els.filter.innerHTML = Object.entries(FILTERS)
     .map(([key, spec]) => `<option value="${key}">${spec.label} (${n[key]})</option>`)
@@ -174,9 +180,9 @@ function renderQueue() {
   const visible = queue.rubrics.filter(match);
   els.queue.innerHTML = "";
   if (!visible.length) {
-    els.queue.innerHTML = state.filter === "pending"
-      ? `<p class="empty">Nothing left to review for ${state.year}. ` +
-        `${queue.total - queue.authored} rubric(s) still have no chains authored.</p>`
+    els.queue.innerHTML = state.filter === "flagged"
+      ? `<p class="empty">Nothing flagged for ${state.year} — every rubric is in ` +
+        `use. Flag one here, or from the practice app when an answer looks wrong.</p>`
       : `<p class="empty">Nothing here.</p>`;
     return;
   }
@@ -187,10 +193,6 @@ async function loadYear(year) {
   state.year = year;
   els.queue.innerHTML = `<p class="empty">Loading…</p>`;
   queue = await getJSON(`/api/review/${year}`);
-  for (const rubric of queue.rubrics) {
-    // The API reports approval; a recorded rejection is the other decided state.
-    rubric.rejected = !rubric.reviewed && Boolean(rubric.reviewed_at);
-  }
   if (!queue.rubrics.length) {
     els.queue.innerHTML =
       `<p class="empty">No rubrics have chains yet for ${year}. ` +

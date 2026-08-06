@@ -232,3 +232,9 @@ main.single { grid-template-columns: 1fr; }
 .actions .approve:hover { border-color: var(--good); color: var(--good); }
 .actions .reject:hover { border-color: #c0392b; color: #c0392b; }
 .rubric.settled { opacity: 0.35; transition: opacity 0.6s ease; }
+
+.flagrow { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.flagrow .flag, .flagrow .flagsend { font-size: 13px; padding: 4px 9px; }
+.flagrow .flag { color: var(--muted); border-style: dashed; }
+.flagrow .flag:hover { color: var(--warn); border-color: var(--warn); }
+.flagrow .flagreason { flex: 1; min-width: 200px; padding: 5px 9px; font: inherit; border: 1px solid var(--line); border-radius: 8px; }

@@ -1,11 +1,11 @@
 {
   "_comment": [
-    "Per-rubric sign-off, written by the review UI at /review.",
-    "A rubric is only reviewed when a human has read it against the question and",
-    "the suggested answer. Nothing reaches the student with reviewed: false.",
-    "Committed on purpose: it records decisions, not copyrighted content, and",
-    "rubrics/ is regenerated.",
-    "Keys are question number + part label, e.g. '29a', '30b(i)'."
+    "HISTORICAL RECORD \u2014 no longer read by the build.",
+    "This was the per-rubric approval gate: nothing counted until every rubric had",
+    "been signed off. That is superseded by review/flags.json, which records only",
+    "the exceptions, because rubrics are now approved by default.",
+    "Kept because it is a real record of which rubrics a human has read line by",
+    "line, which flags.json does not capture."
   ],
   "2024": {
     "29a": {
@@ -177,6 +177,53 @@
       "approved": true,
       "note": "",
       "at": "2026-08-06T05:45:12+00:00"
+    }
+  },
+  "2025": {
+    "29a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:01+00:00"
+    },
+    "29b": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:16+00:00"
+    },
+    "30a(i)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:19+00:00"
+    },
+    "30a(ii)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:21+00:00"
+    },
+    "30b": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:22+00:00"
+    },
+    "31a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:24+00:00"
+    },
+    "31b(i)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:25+00:00"
+    },
+    "31b(ii)": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:26+00:00"
+    },
+    "32a": {
+      "approved": true,
+      "note": "",
+      "at": "2026-08-06T06:06:28+00:00"
     }
   }
 }

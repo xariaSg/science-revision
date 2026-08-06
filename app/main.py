@@ -29,7 +29,7 @@ from stt import transcribe_bytes, model_name
 REPO = Path(__file__).resolve().parent.parent
 WORK_DIR = REPO / "work"
 RUBRIC_DIR = REPO / "rubrics"
-REVIEWED_FILE = REPO / "review" / "reviewed.json"
+FLAGS_FILE = REPO / "review" / "flags.json"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(title="PSLE Booklet B")
@@ -198,8 +198,8 @@ def review_queue(year: int) -> dict:
     derived file made a page refresh show completed review as undone.
     """
     data = load_rubrics(year)
-    signoff = json.loads(REVIEWED_FILE.read_text()) if REVIEWED_FILE.exists() else {}
-    decisions = signoff.get(str(year), {})
+    flags = json.loads(FLAGS_FILE.read_text()) if FLAGS_FILE.exists() else {}
+    decisions = flags.get(str(year), {})
     # Drawing questions have no chains by design. They still need a human to
     # confirm the classification, so they belong in the queue rather than
     # disappearing from it.
@@ -207,52 +207,65 @@ def review_queue(year: int) -> dict:
                if r.get("chains") or r.get("response_mode") == "drawn"]
     for rubric in rubrics:
         decision = decisions.get(f"{rubric['question']}{rubric['part'] or ''}")
-        if isinstance(decision, dict):
-            rubric["reviewed"] = bool(decision.get("approved"))
-            rubric["review_note"] = decision.get("note", "")
-            rubric["reviewed_at"] = decision.get("at")
+        rubric["flagged"] = isinstance(decision, dict)
+        rubric["reviewed"] = not rubric["flagged"]
+        if rubric["flagged"]:
+            rubric["flag_reason"] = decision.get("reason", "")
+            rubric["flag_source"] = decision.get("source", "")
+            rubric["flagged_at"] = decision.get("at")
     return {
         "year": year,
         "total": len(data["rubrics"]),
         "authored": len(rubrics),
-        "reviewed": sum(1 for r in rubrics if r.get("reviewed")),
+        "flagged": sum(1 for r in rubrics if r.get("flagged")),
         "source": data.get("source"),
         "rubrics": rubrics,
     }
 
 
-@app.post("/api/review/{year}")
-def review_signoff(year: int, payload: dict) -> dict:
-    """Record a human decision about one rubric.
+@app.post("/api/flags/{year}")
+def set_flag(year: int, payload: dict) -> dict:
+    """Raise or clear a flag on one rubric or model answer.
 
-    Written to review/reviewed.json rather than into rubrics/, which is
-    regenerated and gitignored — the decision is the thing worth keeping.
+    Rubrics are approved by default, so this file records only the exceptions.
+    Flagging is available from the practice app as well as the review page,
+    because a problem noticed while marking a real answer is the one most worth
+    capturing — and the least likely to be found by reading rubrics in the
+    abstract.
     """
-    part = payload.get("part")
     question = payload.get("question")
     if question is None:
         raise HTTPException(400, "question is required")
-    key = f"{question}{part or ''}"
+    key = f"{question}{payload.get('part') or ''}"
+    reason = (payload.get("reason") or "").strip()
 
-    REVIEWED_FILE.parent.mkdir(parents=True, exist_ok=True)
-    data = json.loads(REVIEWED_FILE.read_text()) if REVIEWED_FILE.exists() else {}
+    FLAGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(FLAGS_FILE.read_text()) if FLAGS_FILE.exists() else {}
     entries = data.setdefault(str(year), {})
-    if payload.get("approved"):
+
+    if payload.get("flagged", True):
+        if not reason:
+            raise HTTPException(400, "a reason is required when flagging")
         entries[key] = {
-            "approved": True,
-            "note": (payload.get("note") or "").strip(),
+            "reason": reason,
+            "source": payload.get("source", "review"),
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
+        result = {"key": key, "flagged": True, **entries[key]}
     else:
-        # "Needs work" is recorded too: an unreviewed rubric and one a human
-        # rejected are different states, and the second should not be forgotten.
-        entries[key] = {
-            "approved": False,
-            "note": (payload.get("note") or "").strip(),
-            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-    REVIEWED_FILE.write_text(json.dumps(data, indent=2))
-    return {"key": key, **entries[key]}
+        entries.pop(key, None)
+        result = {"key": key, "flagged": False}
+
+    if not entries:
+        data.pop(str(year), None)
+    FLAGS_FILE.write_text(json.dumps(data, indent=2))
+    return result
+
+
+@app.get("/api/flags/{year}")
+def get_flags(year: int) -> dict:
+    data = json.loads(FLAGS_FILE.read_text()) if FLAGS_FILE.exists() else {}
+    return {k: v for k, v in data.get(str(year), {}).items() if isinstance(v, dict)}
 
 
 @app.get("/review", include_in_schema=False)

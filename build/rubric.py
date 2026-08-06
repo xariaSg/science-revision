@@ -33,19 +33,22 @@ RUBRIC_DIR = REPO / "rubrics"
 # tagged so the student can filter them out (CLAUDE.md section 5).
 SYLLABUS_2023_FROM = 2023
 
-REVIEWED_FILE = REPO / "review" / "reviewed.json"
+FLAGS_FILE = REPO / "review" / "flags.json"
 
 
-def reviewed_signoff(year: int) -> dict[str, dict]:
-    """Per-rubric sign-off recorded by the review UI.
+def flags_for(year: int) -> dict[str, dict]:
+    """Rubrics flagged as wrong or doubtful.
 
-    Kept outside rubrics/ because that file is regenerated and gitignored, while a
-    human decision about whether a rubric is safe to put in front of a child is the
-    most valuable thing in this pipeline.
+    Rubrics are approved by default and this records the exceptions. The earlier
+    design required signing off all 65 before any could be used, which front-loads
+    judgement onto rubrics nobody has seen fail. A flag raised while marking a real
+    answer carries far more information than an upfront pass does.
+
+    Kept outside rubrics/ because that file is regenerated and gitignored.
     """
-    if not REVIEWED_FILE.exists():
+    if not FLAGS_FILE.exists():
         return {}
-    data = json.loads(REVIEWED_FILE.read_text())
+    data = json.loads(FLAGS_FILE.read_text())
     entries = data.get(str(year), {})
     return {k: v for k, v in entries.items() if isinstance(v, dict)}
 
@@ -88,7 +91,7 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
     inventory = json.loads((questions_root / str(year) / "questions.json").read_text())
     answers = json.loads((answers_root / str(year) / "answers.json").read_text())
     verified = verified_marks(year)
-    signoff = reviewed_signoff(year)
+    flags = flags_for(year)
 
     marks: dict[tuple[int, str | None], int | None] = {}
     anchors: dict[int, list[str]] = {}
@@ -136,10 +139,11 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
                 "model_answer": part["model_answer"],
                 "explanation": part["explanation"],
                 "source": answers.get("source", "EPH suggested answer"),
-                "reviewed": bool(
-                    signoff.get(f"{question}{part['part'] or ''}", {}).get("approved")),
-                "review_note": signoff.get(
-                    f"{question}{part['part'] or ''}", {}).get("note") or "",
+                # Approved unless flagged.
+                "flagged": bool(flags.get(f"{question}{part['part'] or ''}")),
+                "flag_reason": (flags.get(f"{question}{part['part'] or ''}") or {})
+                    .get("reason", ""),
+                "reviewed": not flags.get(f"{question}{part['part'] or ''}"),
             })
 
     return {
@@ -175,9 +179,9 @@ def main(argv: list[str] | None = None) -> int:
         if retired:
             print(f"    NOTE out of scope from 2026 (Cells removed): {retired}")
         authored = sum(1 for r in data["rubrics"] if r["chains"])
-        reviewed = sum(1 for r in data["rubrics"] if r["reviewed"])
+        flagged = sum(1 for r in data["rubrics"] if r["flagged"])
         print(f"{year}: {len(data['rubrics'])} rubrics scaffolded, "
-              f"{authored} with chains, {reviewed} reviewed -> {target}")
+              f"{authored} with chains, {flagged} flagged -> {target}")
     return 0
 
 

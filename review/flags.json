@@ -1,0 +1,14 @@
+{
+  "_comment": [
+    "Rubrics and model answers flagged as wrong or doubtful.",
+    "Rubrics are APPROVED BY DEFAULT. This file records the exceptions, so an",
+    "empty file means everything is in use. That is the opposite of the earlier",
+    "reviewed.json gate, which required signing off every rubric before any of",
+    "them counted.",
+    "Flags are raised where problems actually surface \u2014 while marking an answer",
+    "in the practice app, or from the review page.",
+    "Committed on purpose: it records judgements, not copyrighted content, and",
+    "rubrics/ is regenerated.",
+    "Keys are question number + part label, e.g. '32c', '30b(i)'."
+  ]
+}

@@ -128,6 +128,7 @@ function partCard(question, part, index) {
         SEAB marking scheme. If your wording differs but your science is right,
         you may still have the mark.</div>`;
       model.append(selfMarkRow(part, (value) => { selfMark = value; }));
+      model.append(flagRow(question, part));
       card.classList.add("done");
     } catch (err) {
       model.innerHTML = `<h4>Suggested answer</h4><p>Could not load it: ${err.message}</p>`;
@@ -156,6 +157,51 @@ function partCard(question, part, index) {
   });
 
   return card;
+}
+
+// Raising a doubt is most useful at the moment it appears — with the answer in
+// front of you and your own attempt beside it. Asking for it later, out of
+// context, is how a wrong model answer survives.
+function flagRow(question, part) {
+  const row = document.createElement("div");
+  row.className = "flagrow";
+  row.innerHTML = `
+    <button class="flag" type="button">Something looks wrong with this answer</button>
+    <input class="flagreason" type="text" placeholder="What looks wrong?" hidden>
+    <button class="flagsend" type="button" hidden>Send</button>
+    <span class="flagsaved status"></span>`;
+
+  const open = row.querySelector(".flag");
+  const reason = row.querySelector(".flagreason");
+  const send = row.querySelector(".flagsend");
+  const saved = row.querySelector(".flagsaved");
+
+  open.addEventListener("click", () => {
+    reason.hidden = send.hidden = false;
+    open.hidden = true;
+    reason.focus();
+  });
+
+  send.addEventListener("click", async () => {
+    if (!reason.value.trim()) { reason.focus(); return; }
+    saved.textContent = "Sending…";
+    try {
+      const res = await fetch(`/api/flags/${state.year}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: question.question, part: part.part, flagged: true,
+          reason: reason.value, source: "practice",
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      reason.hidden = send.hidden = true;
+      saved.textContent = "Flagged — it will show up on the review page.";
+    } catch (err) {
+      saved.textContent = `Could not send: ${err.message}`;
+    }
+  });
+  return row;
 }
 
 function selfMarkRow(part, onPick) {
