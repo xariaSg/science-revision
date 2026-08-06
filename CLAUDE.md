@@ -129,6 +129,35 @@ Answer-page internal pagination appears to belong to a multi-year compilation (t
 answers begin on a page numbered 8). Do not rely on printed page numbers for indexing;
 use the archive's own image ordering.
 
+**Layout, verified for 2024 and 2025.** Booklet B's answers do not start on a page
+boundary — a page range is not enough to find them. On 2024 they begin partway down
+p31's *right* column, directly under a `Booklet B` header, while the left column of that
+same page is still finishing Booklet A's MCQ answers. `build/segment_answers.py` handles
+this; the properties it relies on:
+
+- Two columns, left read fully before right. The gutter can be as narrow as **5px** at
+  300 dpi (2025 p33), and a page number printed inside it will hide it completely.
+- Indentation encodes role within a column: question numbers at the left edge, sub-part
+  labels one indent in, body text further right. This is what keys an answer to its
+  sub-part.
+- Tesseract's block ordering **cannot** be trusted here — it merges lines across the
+  gutter, producing blocks like "Chemical potential energy in the 29. (a) Roots absorb
+  water..." Work from word boxes and assign columns yourself.
+- The dotted rule between columns OCRs as isolated `:` `|` `;` `}` and lands *left* of
+  the right column's question numbers. Strip it before measuring any geometry.
+- Booklet B's first page states its own range ("For questions 29 to 40"). Parse it and
+  use it to check answer coverage, rather than assuming Q29–Q40.
+
+**Segmentation is not fully reliable and is not expected to be.** 2024 segments to 12/12
+questions; 2025 to 9/12. Q31, Q35 and Q39 fail because tesseract never emits those
+number glyphs at any confidence — an OCR dropout, not a geometry bug, so no amount of
+tuning recovers them. When a question number is dropped its sub-parts are silently
+absorbed by the previous question, which is the most dangerous failure this pipeline
+has; it is detected by watching for sub-part labels running backwards
+(`a, b, ... a`) and reported. **Treat the OCR text as a draft for review only** — it
+contains real errors ("predotors", `Explanation:` clipped to `ion:`). Authoritative text
+must come from the vision pass, per plan §1b.
+
 ---
 
 ## 2. Hard constraints
