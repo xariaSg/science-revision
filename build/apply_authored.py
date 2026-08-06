@@ -17,8 +17,11 @@ REPO = Path(__file__).resolve().parent.parent
 AUTHORED_DIR = Path(__file__).resolve().parent / "authored"
 RUBRIC_DIR = REPO / "rubrics"
 
+# scenario_anchors is mergeable because automatic extraction only finds
+# "noun + capital letter" patterns. Real anchors also include quantities the
+# question turns on ("32 °C", "45 degrees") and entities the scan misses.
 MERGE_FIELDS = ("chains", "chains_required", "mark_model", "topics", "traps",
-                "context_gate")
+                "context_gate", "scenario_anchors")
 
 
 def load_authored(year: int) -> dict:

@@ -70,7 +70,8 @@ ANCHOR_RE = re.compile(
     r"set-?up|zone|bulb|magnet|cylinder|jar|box|ball|spring|liquid|material|"
     r"object|sample|card|strip|wire|circuit|solution|mixture|seed|leaf|organism|"
     r"fungus|fungi|bacteria|nest|process|region|area|part|point|tank|pot|bag|"
-    r"rod|bar|sheet|surface|powder|gas|metal|cup|bottle|straw|toy|track)"
+    r"rod|bar|sheet|surface|powder|gas|metal|cup|bottle|straw|toy|track|"
+    r"pollutant|contact|switch|lamp|weight|load|string|cloth|fabric|filter)"
     r"\s+([A-Z])\b")
 
 

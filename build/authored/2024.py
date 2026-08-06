@@ -239,4 +239,360 @@ CHAINS: dict[tuple[int, str | None], dict] = {
         "traps": ["stating that fish C decreases without naming a mechanism",
                   "answering only via food and omitting the oxygen route"],
     },
+
+    (33, "a"): {
+        "mark_model": "per_keypoint",
+        "context_gate": "general",
+        "topics": ["plant_system", "respiration"],
+        "chains": [{"chain_id": "function", "keypoints": [
+            {"kp_id": "fun_1", "position": 1, "facet": "result",
+             "statement": "the tiny openings let gases be exchanged between the "
+                          "plant and its surroundings",
+             "accepts": ["they let carbon dioxide in and oxygen out",
+                         "gases move in and out of the leaf through them"]}]}],
+        "traps": ["naming the openings (stomata) without saying what they do"],
+    },
+
+    (33, "b"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["pollutant S"],
+        "topics": ["interactions_within_environment", "plant_system"],
+        "chains": [{"chain_id": "trend", "keypoints": [
+            {"kp_id": "trd_1", "position": 1, "facet": "result",
+             "statement": "the greater the percentage of pollutant S, the smaller "
+                          "the tiny openings on the leaves",
+             "accepts": ["more pollutant S means smaller openings",
+                         "the openings get smaller as pollutant S increases"]}]}],
+        "traps": ["saying the openings 'change' without giving the direction",
+                  "stating a value without relating the two variables"],
+    },
+
+    # CLAUDE.md 3.3 uses this as the worked example of the contextual gate:
+    # "it is a fair test" is a template answer and earns nothing. The mark needs
+    # pollutant S named as the only changed variable AND another factor ruled out.
+    (33, "c"): {
+        "mark_model": "per_chain",
+        "chains_required": 1,
+        "scenario_anchors": ["pollutant S"],
+        "topics": ["experimental_design"],
+        "chains": [{"chain_id": "fair_test", "keypoints": [
+            {"kp_id": "fair_1", "position": 1, "facet": "variable",
+             "statement": "pollutant S must be the only thing changed between the "
+                          "set-ups",
+             "accepts": ["only the amount of pollutant S is different"]},
+            {"kp_id": "fair_2", "position": 2, "facet": "result",
+             "statement": "so any change in the size of the tiny openings is caused "
+                          "by pollutant S and not by another factor such as heat "
+                          "from the sun",
+             "accepts": ["the openings changed because of pollutant S alone",
+                         "no other factor such as sunlight caused the change"]}]}],
+        "traps": ["answering 'it is a fair test' — a template answer that names no "
+                  "variable and earns nothing",
+                  "naming pollutant S but never ruling out any other factor"],
+    },
+
+    (34, "a"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["substance X"],
+        "topics": ["interactions_within_environment"],
+        "chains": [{"chain_id": "trend", "keypoints": [
+            {"kp_id": "trd_1", "position": 1, "facet": "result",
+             "statement": "as the mass of substance X added increased, the thickness "
+                          "of the eggshell decreased",
+             "accepts": ["more substance X gave thinner eggshells",
+                         "the eggshells got thinner as more X was added"]}]}],
+        "traps": ["describing one reading instead of the trend",
+                  "saying the thickness 'changed' without the direction"],
+    },
+
+    (34, "b"): {
+        "mark_model": "per_chain",
+        "chains_required": 1,
+        "scenario_anchors": ["animal Y", "substance X"],
+        "topics": ["interactions_within_environment", "survival_of_the_species"],
+        "chains": [{"chain_id": "decompose", "keypoints": [
+            {"kp_id": "dec_1", "position": 1, "facet": "variable",
+             "statement": "as the dead plants decompose further, more substance X is "
+                          "produced",
+             "accepts": ["decomposition releases more substance X"]},
+            {"kp_id": "dec_2", "position": 2, "facet": "action",
+             "statement": "more substance X makes the eggshells of animal Y thinner",
+             "accepts": ["the eggshells become thinner"]},
+            {"kp_id": "dec_3", "position": 3, "facet": "result",
+             "statement": "the fully developed young of animal Y can break out of the "
+                          "thin shells more easily",
+             "accepts": ["the young hatch out more easily"]}]}],
+        "traps": ["stating the eggshells get thinner without saying what that lets "
+                  "the young do"],
+    },
+
+    (34, "c"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["animal Y", "32 °C"],
+        "topics": ["survival_of_the_species", "reproduction"],
+        "chains": [{"chain_id": "temperature", "keypoints": [
+            {"kp_id": "tmp_1", "position": 1, "facet": "variable",
+             "statement": "32 °C",
+             "accepts": ["thirty-two degrees Celsius"]},
+            {"kp_id": "tmp_2", "position": 2, "facet": "result",
+             "statement": "at this temperature equal numbers of male and female "
+                          "animal Y hatch, so they can mate and reproduce to continue "
+                          "the species",
+             "accepts": ["there are both males and females so they can reproduce",
+                         "an equal number of each sex hatches so the species continues"]}]}],
+        "traps": ["giving the temperature with no reason",
+                  "saying 'more hatch' rather than an equal number of each sex"],
+    },
+
+    # Two trends either side of 45 degrees; the answer is incomplete with only one.
+    (35, "a"): {
+        "mark_model": "per_chain",
+        "chains_required": 2,
+        "scenario_anchors": ["45 degrees"],
+        "topics": ["forces", "energy"],
+        "chains": [
+            {"chain_id": "below_45", "keypoints": [
+                {"kp_id": "bel_1", "position": 1, "facet": "result",
+                 "statement": "as the launching angle increases up to 45 degrees, the "
+                              "distance moved by the ball increases",
+                 "accepts": ["the ball goes further as the angle rises towards 45"]}]},
+            {"chain_id": "above_45", "keypoints": [
+                {"kp_id": "abv_1", "position": 1, "facet": "result",
+                 "statement": "beyond 45 degrees, the distance moved by the ball "
+                              "decreases",
+                 "accepts": ["past 45 degrees the ball does not go as far"]}]},
+        ],
+        "traps": ["describing only the rise and missing the fall after 45 degrees",
+                  "saying the distance 'changes' without the direction"],
+    },
+
+    (35, "b"): {
+        "mark_model": "per_keypoint",
+        "context_gate": "general",
+        "topics": ["forces"],
+        "chains": [{"chain_id": "name", "keypoints": [
+            {"kp_id": "nam_1", "position": 1, "facet": "result",
+             "statement": "gravitational force",
+             "accepts": ["gravity"]}]}],
+        "traps": ["answering 'frictional force' or 'air resistance'"],
+    },
+
+    (35, "c"): {
+        "mark_model": "per_chain",
+        "chains_required": 1,
+        "topics": ["forces", "experimental_design"],
+        "chains": [{"chain_id": "measurement", "keypoints": [
+            {"kp_id": "mea_1", "position": 1, "facet": "action",
+             "statement": "after hitting the water the ball sinks, and where it lands "
+                          "may not be directly below the point where it entered",
+             "accepts": ["the ball drifts as it sinks"]},
+            {"kp_id": "mea_2", "position": 2, "facet": "result",
+             "statement": "so the distance moved by the ball cannot be measured "
+                          "accurately",
+             "accepts": ["the measurement would not be accurate"]}]}],
+        "traps": ["saying the ball sinks without saying why that matters"],
+    },
+
+    (35, "d"): {
+        "mark_model": "per_keypoint",
+        "topics": ["experimental_design", "forces"],
+        "chains": [{"chain_id": "control", "keypoints": [
+            {"kp_id": "ctl_1", "position": 1, "facet": "variable",
+             "statement": "the spring must be compressed by the same amount each time",
+             "accepts": ["the same compression of the spring",
+                         "the elastic spring force used to launch the ball is kept "
+                         "the same"]}]}],
+        "traps": ["naming the launching angle, which is the variable being changed"],
+    },
+
+    (36, "a"): {
+        "mark_model": "per_keypoint",
+        "context_gate": "general",
+        "topics": ["heat"],
+        "chains": [{"chain_id": "read", "keypoints": [
+            {"kp_id": "rd_1", "position": 1, "facet": "result",
+             "statement": "50 mm", "accepts": ["50 millimetres"]}]}],
+        "traps": [],
+    },
+
+    (36, "b"): {
+        "mark_model": "per_keypoint",
+        "context_gate": "general",
+        "topics": ["heat"],
+        "chains": [{"chain_id": "read", "keypoints": [
+            {"kp_id": "rd_1", "position": 1, "facet": "result",
+             "statement": "6 mm", "accepts": ["6 millimetres"]}]}],
+        "traps": [],
+    },
+
+    (36, "c"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["the wires"],
+        "topics": ["heat", "expansion_and_contraction"],
+        "chains": [{"chain_id": "contraction", "keypoints": [
+            {"kp_id": "con_1", "position": 1, "facet": "action",
+             "statement": "at night the surrounding temperature fell, so the wires "
+                          "lost heat and contracted",
+             "accepts": ["the wires got colder and contracted",
+                         "the wires shrank as they lost heat"]},
+            {"kp_id": "con_2", "position": 2, "facet": "result",
+             "statement": "the wires had been pulled tight with no allowance for "
+                          "contraction, so they snapped",
+             "accepts": ["there was no slack, so they broke"]}]}],
+        "traps": ["saying the wires contracted without saying why they broke",
+                  "attributing the break to the wires expanding"],
+    },
+
+    (36, "d"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["the wires"],
+        "topics": ["heat", "expansion_and_contraction"],
+        "chains": [{"chain_id": "fix", "keypoints": [
+            {"kp_id": "fix_1", "position": 1, "facet": "action",
+             "statement": "secure the wires to the wooden support loosely, leaving "
+                          "slack so they can contract without snapping",
+             "accepts": ["let the wires hang loosely",
+                         "do not pull the wires tight"]}]}],
+        "traps": ["suggesting a change that does not allow for contraction"],
+    },
+
+    (37, "a"): {
+        "mark_model": "per_keypoint",
+        "context_gate": "general",
+        "topics": ["states_of_matter", "heat"],
+        "chains": [{"chain_id": "define", "keypoints": [
+            {"kp_id": "def_1", "position": 1, "facet": "result",
+             "statement": "freezing is when a liquid changes into a solid at its "
+                          "freezing point",
+             "accepts": ["a liquid turns into a solid",
+                         "a liquid loses heat and becomes a solid"]}]}],
+        "traps": ["describing melting instead", "omitting either state"],
+    },
+
+    (37, "b"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["substance P", "30 °C"],
+        "topics": ["states_of_matter"],
+        "chains": [{"chain_id": "identify", "keypoints": [
+            {"kp_id": "id_1", "position": 1, "facet": "variable",
+             "statement": "150 cm3 can only be stored in a 100 cm3 container if the "
+                          "substance is a gas, because only a gas can be compressed",
+             "accepts": ["only gases can be compressed into a smaller volume"]},
+            {"kp_id": "id_2", "position": 2, "facet": "result",
+             "statement": "substance P, because its boiling point is 15 °C so it is "
+                          "a gas at 30 °C",
+             "accepts": ["substance P is already a gas at 30 °C"]}]}],
+        "traps": ["naming substance P with no reason",
+                  "arguing from the freezing point rather than the boiling point"],
+    },
+
+    (37, "c"): {
+        "mark_model": "per_chain",
+        "chains_required": 1,
+        "scenario_anchors": ["substance Q", "30 °C"],
+        "topics": ["states_of_matter"],
+        "chains": [{"chain_id": "liquid", "keypoints": [
+            {"kp_id": "liq_1", "position": 1, "facet": "variable",
+             "statement": "substance Q is a liquid at 30 °C",
+             "accepts": ["Q is in the liquid state at that temperature"]},
+            {"kp_id": "liq_2", "position": 2, "facet": "result",
+             "statement": "the tray has gaps, so liquid Q would flow out instead of "
+                          "being stored",
+             "accepts": ["a liquid would run out of the open tray",
+                         "the tray cannot hold a liquid because it is not sealed"]}]}],
+        "traps": ["answering yes or no with no reason",
+                  "saying Q is a liquid but never mentioning the gaps in the tray"],
+    },
+
+    (38, "a"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["contact B"],
+        "topics": ["electricity", "magnetism"],
+        "chains": [{"chain_id": "cycle", "keypoints": [
+            {"kp_id": "cyc_1", "position": 1, "facet": "action",
+             "statement": "with the switch closed, current makes the iron cylinder an "
+                          "electromagnet that repels the magnet upwards, so metal "
+                          "contact B is broken and the circuit opens",
+             "accepts": ["the electromagnet pushes the magnet up and breaks the "
+                         "contact, opening the circuit"]},
+            {"kp_id": "cyc_2", "position": 2, "facet": "result",
+             "statement": "with no current the cylinder loses its magnetism, the "
+                          "magnet drops back, contact B is remade and the cycle "
+                          "repeats",
+             "accepts": ["the electromagnet switches off, the magnet falls back and "
+                         "the circuit closes again, so it repeats"]}]}],
+        "traps": ["describing only the upward push and never the circuit re-closing",
+                  "saying the magnet moves without naming the electromagnet"],
+    },
+
+    (38, "b"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["contact B", "the batteries"],
+        "topics": ["energy", "electricity", "magnetism"],
+        "chains": [{"chain_id": "energy", "keypoints": [
+            {"kp_id": "eng_1", "position": 1, "facet": "result",
+             "statement": "the captain moved up to a lower height than before",
+             "accepts": ["it did not go as high"]},
+            {"kp_id": "eng_2", "position": 2, "facet": "variable",
+             "statement": "hours of play converted much of the batteries' chemical "
+                          "potential energy into electrical energy, so less remained, "
+                          "giving a weaker electromagnet and weaker repulsion",
+             "accepts": ["the batteries had less stored energy left, so the "
+                         "electromagnet was weaker",
+                         "less electrical energy meant a weaker push on the magnet"]}]}],
+        "traps": ["saying the batteries are 'running out' with no energy conversion",
+                  "stating the height changed without explaining why"],
+    },
+
+    (39, "a"): {
+        "mark_model": "per_keypoint",
+        "context_gate": "general",
+        "topics": ["measurement"],
+        "chains": [{"chain_id": "read", "keypoints": [
+            {"kp_id": "rd_1", "position": 1, "facet": "result",
+             "statement": "112.6 cm", "accepts": ["112.6 centimetres"]}]}],
+        "traps": [],
+    },
+
+    (39, "b"): {
+        "mark_model": "per_keypoint",
+        "topics": ["measurement", "experimental_design"],
+        "chains": [{"chain_id": "method", "keypoints": [
+            {"kp_id": "met_1", "position": 1, "facet": "action",
+             "statement": "the zero end of the measuring tape should start at the "
+                          "level the boy is standing on",
+             "accepts": ["put the zero mark at his feet / at ground level",
+                         "measure from the surface he stands on"]}]}],
+        "traps": ["saying the measurement is wrong without saying how to fix it"],
+    },
+
+    (40, "a"): {
+        "mark_model": "per_keypoint",
+        "scenario_anchors": ["block A", "block B"],
+        "topics": ["floating_and_sinking", "forces"],
+        "chains": [{"chain_id": "observe", "keypoints": [
+            {"kp_id": "obs_1", "position": 1, "facet": "result",
+             "statement": "block A floats and block B sinks",
+             "accepts": ["A stays on the surface while B goes down"]}]}],
+        "traps": ["describing only one of the two blocks"],
+    },
+
+    (40, "b"): {
+        "mark_model": "per_chain",
+        "chains_required": 1,
+        "scenario_anchors": ["block A", "block B"],
+        "topics": ["floating_and_sinking", "experimental_design"],
+        "chains": [{"chain_id": "evidence", "keypoints": [
+            {"kp_id": "evi_1", "position": 1, "facet": "variable",
+             "statement": "many different materials can float on water, so floating "
+                          "alone does not identify the material",
+             "accepts": ["wood and polystyrene both float, so floating proves nothing "
+                         "about which material it is"]},
+            {"kp_id": "evi_2", "position": 2, "facet": "result",
+             "statement": "so there is not enough evidence to conclude the two blocks "
+                          "are made of the same material",
+             "accepts": ["I do not agree — you cannot tell they are the same material"]}]}],
+        "traps": ["agreeing with the conclusion",
+                  "disagreeing with no reason given"],
+    },
 }
