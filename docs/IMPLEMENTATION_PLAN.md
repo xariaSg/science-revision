@@ -70,27 +70,28 @@ layout signature rather than as text.
 
 **Goal:** a reviewed, validated `questions.json` plus crops for 2024 and 2025.
 
-### 1a. Segmentation
+### 1a. Question inventory — DONE (`build/index_questions.py`)
 
-Question numbers sit in the left margin in bold. Detect candidate y-positions of margin
-numbers, propose question boundaries, crop.
+**Superseded 2026-08-06.** This was originally "segment each question into crops with a
+crop review UI". That is dropped. The app shows the **original Booklet B page** and
+offers one answer box per sub-part, so the pipeline needs an inventory, not crops:
+question number → sub-parts → marks → page. Showing the page keeps every diagram, table
+and graph intact, and is the cleaner copyright position (§2.1).
 
-Do not aim for full automation. Build a **crop review UI** in `review/` — a local page
-showing each proposed crop over the source page with draggable boundaries. Two papers is
-roughly 24 Booklet B pages; a human pass is minutes, and it removes the single largest
-source of downstream garbage.
+Both papers index to 12/12 questions (Q29–Q40). Marks are checked against the total
+Booklet B states for itself ("44 marks"): 2024 reads 40/44, 2025 43/44, with the
+unread allocations named. No crop review UI is needed.
 
-Crops needed per question: the whole question (stem + all sub-parts + any table, graph,
-or diagram), and optionally per-sub-part crops for focused display.
+### 1b. Vision extraction — answers only
 
-### 1b. Vision extraction
+Question text and figures are **not** extracted; the page carries them. What still needs
+extraction is the answers: for each region found by `build/segment_answers.py`, the model
+answer and the `Explanation:` block as separate fields, keyed to question and sub-part.
 
-For each question crop, extract: question number, sub-part labels, stem text, mark
-allocation per sub-part, and a description of any figure. Text is for search, tagging,
-and grading context — **the app displays the crop, not the text**.
-
-For each answer-page region, extract the model answer and the `Explanation:` block as
-separate fields, keyed to question and sub-part.
+The OCR draft in `segments.json` is *not* good enough for this — it has real errors
+("predotors", `Explanation:` clipped to `ion:`), and 2025 loses three question numbers
+to OCR dropout entirely. The vision pass should take the crops plus drafts and produce
+authoritative text, repairing the questions segmentation missed.
 
 ### 1c. Topic tagging
 
