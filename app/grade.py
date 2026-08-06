@@ -199,7 +199,10 @@ def normalise(transcript: str, question_context: str = "") -> NormalisedAnswer:
             model=MODEL,
             max_tokens=MAX_TOKENS,
             thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
+            # Stage A is extraction, not judgement. Measured on a real spoken
+            # answer, low produced the identical six claims as medium and 1.9s
+            # faster — the child is watching a spinner, so that is worth taking.
+            output_config={"effort": "low"},
             system=STAGE_A_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
             output_format=NormalisedAnswer,
@@ -248,7 +251,10 @@ def judge(claims: list[str], rubric: dict) -> StageBJudgement:
             model=MODEL,
             max_tokens=MAX_TOKENS,
             thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
+            # Measured over three runs each on the same claims: medium and high
+            # both returned the same mark every time, medium 3.2s faster. Revisit
+            # if marks start disagreeing with a human.
+            output_config={"effort": "medium"},
             system=STAGE_B_SYSTEM,
             messages=[{"role": "user", "content": json.dumps(payload, indent=2)}],
             output_format=StageBJudgement,

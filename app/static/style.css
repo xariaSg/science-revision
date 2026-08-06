@@ -338,3 +338,37 @@ main.single { grid-template-columns: 1fr; }
 .pt-bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 8px 0 6px; }
 .pt-fill { height: 100%; background: var(--good); border-radius: 999px; transition: width 0.4s ease; }
 .pt-meta { font-size: 12.5px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- progress */
+
+#report h3 { font-size: 15px; margin: 22px 0 8px; }
+#report h3 .count { font-weight: 400; color: var(--muted); font-size: 13px; }
+
+.summary { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
+.stat { font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; }
+.stat span { font-size: 26px; font-weight: 650; color: var(--ink); line-height: 1.2; }
+
+.focus { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; font-size: 14.5px; margin-bottom: 10px; }
+.focus.warn { background: var(--warn-soft); color: var(--warn); }
+.focus strong { display: block; margin-bottom: 2px; }
+
+.prow, .dayrow { display: grid; align-items: center; gap: 10px; padding: 4px 0; font-size: 13.5px; }
+.prow { grid-template-columns: minmax(140px, 1.3fr) minmax(80px, 2fr) 42px 70px; }
+.dayrow { grid-template-columns: 92px minmax(80px, 2fr) 42px 1fr; }
+.pname { color: var(--ink); }
+.dday { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pbar, .dbar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.pfill, .dfill { height: 100%; border-radius: 999px; }
+.dfill { background: var(--accent); }
+.pfill.weak { background: #c0392b; }
+.pfill.mid { background: #d19a1a; }
+.pfill.strong { background: var(--good); }
+.ppct, .dpct { text-align: right; font-variant-numeric: tabular-nums; }
+.pmeta, .dmeta { color: var(--muted); font-size: 12.5px; }
+
+.trend { font-size: 14px; margin: 0 0 8px; }
+.trend.up { color: var(--good); }
+.trend.down { color: var(--warn); }
+
+.untouched { display: flex; flex-wrap: wrap; gap: 6px; }
+.untouched span { font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; }

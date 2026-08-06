@@ -224,6 +224,109 @@ def paper_score(year: int) -> dict:
     }
 
 
+@app.get("/api/papers/{year}/progress")
+def paper_progress(year: int) -> dict:
+    """Progress on one paper: marks over time, weak topics, what is untouched."""
+    return _progress(year)
+
+
+@app.get("/api/progress")
+def progress_all() -> dict:
+    """Progress across every paper."""
+    return _progress(None)
+
+
+def _progress(year: int | None) -> dict:
+    from collections import defaultdict
+
+    years = [year] if year is not None else [
+        int(p.name) for p in WORK_DIR.iterdir()
+        if p.is_dir() and p.name.isdigit() and (p / "questions.json").exists()]
+
+    # Rubric topics/themes keyed by sub-part, so a weak area can be named.
+    meta: dict[tuple[int, int, str | None], dict] = {}
+    for y in years:
+        path = RUBRIC_DIR / f"{y}.json"
+        if not path.exists():
+            continue
+        for r in json.loads(path.read_text())["rubrics"]:
+            meta[(y, r["question"], r["part"])] = r
+
+    rows = [row for y in years for row in list_attempts(year=y)]
+
+    by_day: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
+    topic_stat: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
+    theme_stat: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
+    facet_stat: dict[str, dict] = defaultdict(lambda: {"hit": 0, "missed": 0})
+    gate_fails = 0
+    best: dict[tuple, dict] = {}
+
+    for row in rows:
+        if row["marks"] is None:
+            continue
+        day = (row["created_at"] or "")[:10]
+        by_day[day]["earned"] += row["marks"]
+        by_day[day]["possible"] += row["marks_total"] or 0
+        by_day[day]["attempts"] += 1
+        if row["gate_passed"] == 0:
+            gate_fails += 1
+
+        key = (row["year"], row["question"], row["part"])
+        if key not in best or row["marks"] > best[key]["marks"]:
+            best[key] = dict(row)
+
+        for outcome in json.loads(row["outcomes"] or "[]"):
+            facet = outcome.get("facet") or "unknown"
+            bucket = "hit" if outcome.get("status") == "hit" else "missed"
+            facet_stat[facet][bucket] += 1
+
+    # Topic and theme strength use the best attempt only: the question is what the
+    # student can do now, not what they got wrong on the way there.
+    for key, row in best.items():
+        rubric = meta.get(key)
+        if not rubric:
+            continue
+        for topic in rubric.get("syllabus_topics") or rubric.get("topics") or []:
+            topic_stat[topic]["earned"] += row["marks"]
+            topic_stat[topic]["possible"] += row["marks_total"] or 0
+            topic_stat[topic]["attempts"] += 1
+        for theme in rubric.get("themes") or []:
+            theme_stat[theme]["earned"] += row["marks"]
+            theme_stat[theme]["possible"] += row["marks_total"] or 0
+            theme_stat[theme]["attempts"] += 1
+
+    def ranked(stat: dict) -> list[dict]:
+        out = [{"name": name, **v,
+                "percent": round(v["earned"] / v["possible"] * 100) if v["possible"] else 0}
+               for name, v in stat.items() if v["possible"]]
+        return sorted(out, key=lambda d: (d["percent"], -d["possible"]))
+
+    never: list[dict] = []
+    for y in years:
+        data = json.loads((WORK_DIR / str(y) / "questions.json").read_text())
+        for q in data["questions"]:
+            for part in q["parts"]:
+                if part.get("is_parent"):
+                    continue
+                if (y, q["question"], part["part"]) not in best:
+                    never.append({"year": y, "question": q["question"],
+                                  "part": part["part"], "marks": part["marks"]})
+
+    return {
+        "years": sorted(years),
+        "by_day": [{"date": d, **v} for d, v in sorted(by_day.items())],
+        "topics": ranked(topic_stat),
+        "themes": ranked(theme_stat),
+        "facets": [{"name": f, **v,
+                    "percent": round(v["hit"] / (v["hit"] + v["missed"]) * 100)
+                               if (v["hit"] + v["missed"]) else 0}
+                   for f, v in sorted(facet_stat.items())],
+        "gate_failures": gate_fails,
+        "never_attempted": never,
+        "total_attempts": len(rows),
+    }
+
+
 @app.get("/api/grading")
 def grading_status() -> dict:
     """Whether grading is available, so the UI can say so before a student tries."""
@@ -257,6 +360,25 @@ def grade_answer(year: int, question: int, payload: dict) -> dict:
         result = grade(answer, rubric, question_context=payload.get("context", ""))
     except GradingUnavailable as exc:
         raise HTTPException(503, str(exc))
+
+    # Log the graded attempt here rather than waiting for a Save click. A mark the
+    # student never saved is a mark the progress report never sees, and the report
+    # is the point of keeping the log at all.
+    facet_of = {kp["kp_id"]: kp.get("facet")
+                for chain in rubric.get("chains", [])
+                for kp in chain.get("keypoints", [])}
+    outcomes = [{"kp_id": link.kp_id, "status": link.status,
+                 "chain_id": chain.chain_id, "facet": facet_of.get(link.kp_id)}
+                for chain in result.chains for link in chain.links]
+    save_attempt({
+        "year": year, "question": question, "part": part,
+        "mode": payload.get("mode", "typed"),
+        "answer": answer, "transcript": payload.get("transcript"),
+        "marks": result.marks_awarded, "marks_total": result.marks_total,
+        "graded": True, "claims": result.claims, "outcomes": outcomes,
+        "gate_passed": result.context_gate.passed,
+        "topics": rubric.get("topics", []),
+    })
     return result.as_dict()
 
 
@@ -360,6 +482,11 @@ def get_flags(year: int) -> dict:
     return {k: v for k, v in data.get(str(year), {}).items() if isinstance(v, dict)}
 
 
+@app.get("/progress", include_in_schema=False)
+def progress_page() -> HTMLResponse:
+    return _shell("progress.html")
+
+
 @app.get("/review", include_in_schema=False)
 def review_page() -> HTMLResponse:
     return _shell("review.html")
@@ -379,7 +506,7 @@ def index() -> HTMLResponse:
 
 def _shell(name: str) -> HTMLResponse:
     html = (STATIC_DIR / name).read_text()
-    for asset in ("style.css", "app.js", "review.js"):
+    for asset in ("style.css", "app.js", "review.js", "progress.js"):
         path = STATIC_DIR / asset
         if path.exists():
             html = html.replace(f"/{asset}", f"/{asset}?v={int(path.stat().st_mtime)}")

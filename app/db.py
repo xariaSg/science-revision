@@ -7,6 +7,7 @@ because Phase 2 has no grader.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,8 +25,13 @@ CREATE TABLE IF NOT EXISTS attempts (
     mode        TEXT    NOT NULL,          -- 'voice' | 'typed'
     answer      TEXT    NOT NULL,          -- as submitted, after any correction
     transcript  TEXT,                      -- raw transcript before correction
-    marks       INTEGER,                   -- self-marked in Phase 2
-    marks_total INTEGER
+    marks       INTEGER,                   -- awarded, by the grader or self-marked
+    marks_total INTEGER,
+    graded      INTEGER NOT NULL DEFAULT 0, -- 1 when the grader produced the mark
+    claims      TEXT,                       -- Stage A output, JSON
+    outcomes    TEXT,                       -- per-keypoint verdicts, JSON
+    gate_passed INTEGER,                    -- contextual gate, when graded
+    topics      TEXT                        -- rubric topics, JSON, for weak-area rollup
 );
 CREATE INDEX IF NOT EXISTS attempts_by_question
     ON attempts (year, question, part);
@@ -39,9 +45,28 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the first release. SQLite has no "add column if missing",
+# so this brings an existing attempts.db up to date without losing its rows.
+LATER_COLUMNS = {
+    "graded": "INTEGER NOT NULL DEFAULT 0",
+    "claims": "TEXT",
+    "outcomes": "TEXT",
+    "gate_passed": "INTEGER",
+    "topics": "TEXT",
+}
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(attempts)")}
+        for column, decl in LATER_COLUMNS.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE attempts ADD COLUMN {column} {decl}")
+
+
+def _json(value) -> str | None:
+    return json.dumps(value) if value is not None else None
 
 
 def save_attempt(payload: dict) -> dict:
@@ -55,13 +80,21 @@ def save_attempt(payload: dict) -> dict:
         "transcript": payload.get("transcript"),
         "marks": payload.get("marks"),
         "marks_total": payload.get("marks_total"),
+        "graded": 1 if payload.get("graded") else 0,
+        "claims": _json(payload.get("claims")),
+        "outcomes": _json(payload.get("outcomes")),
+        "gate_passed": (None if payload.get("gate_passed") is None
+                        else int(bool(payload["gate_passed"]))),
+        "topics": _json(payload.get("topics")),
     }
     with connect() as conn:
         cursor = conn.execute(
             "INSERT INTO attempts (created_at, year, question, part, mode, answer,"
-            " transcript, marks, marks_total)"
+            " transcript, marks, marks_total, graded, claims, outcomes, gate_passed,"
+            " topics)"
             " VALUES (:created_at, :year, :question, :part, :mode, :answer,"
-            " :transcript, :marks, :marks_total)", row)
+            " :transcript, :marks, :marks_total, :graded, :claims, :outcomes,"
+            " :gate_passed, :topics)", row)
         row["id"] = cursor.lastrowid
     return row
 
