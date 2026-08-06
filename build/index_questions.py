@@ -68,7 +68,9 @@ TOTAL_MARKS_RE = re.compile(r"\((\d{2})\s+marks\)", re.I)
 ANCHOR_RE = re.compile(
     r"\b(plant|animal|bird|fish|insect|tube|beaker|container|substance|block|"
     r"set-?up|zone|bulb|magnet|cylinder|jar|box|ball|spring|liquid|material|"
-    r"object|sample|card|strip|wire|circuit|solution|mixture|seed|leaf|organism)"
+    r"object|sample|card|strip|wire|circuit|solution|mixture|seed|leaf|organism|"
+    r"fungus|fungi|bacteria|nest|process|region|area|part|point|tank|pot|bag|"
+    r"rod|bar|sheet|surface|powder|gas|metal|cup|bottle|straw|toy|track)"
     r"\s+([A-Z])\b")
 
 
