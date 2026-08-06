@@ -13,6 +13,8 @@ import json
 import sys
 from pathlib import Path
 
+from syllabus import official_topics, out_of_scope_from_2026, themes_for
+
 REPO = Path(__file__).resolve().parent.parent
 AUTHORED_DIR = Path(__file__).resolve().parent / "authored"
 RUBRIC_DIR = REPO / "rubrics"
@@ -51,6 +53,13 @@ def apply(year: int, rubric_dir: Path = RUBRIC_DIR) -> tuple[int, list[str]]:
             if field in entry:
                 rubric[field] = entry[field]
         rubric.setdefault("mark_model", "per_keypoint")
+        # Themes and syllabus topics derive from `topics`, which this merge is what
+        # sets. Recomputing here keeps them correct whichever order the build runs
+        # in; leaving it to the scaffold left 2025 with no themes at all.
+        topics = rubric.get("topics", [])
+        rubric["themes"] = themes_for(topics)
+        rubric["syllabus_topics"] = official_topics(topics)
+        rubric["out_of_scope_from_2026"] = out_of_scope_from_2026(topics)
         applied += 1
 
     target.write_text(json.dumps(data, indent=2))
