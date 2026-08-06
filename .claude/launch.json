@@ -4,7 +4,16 @@
     {
       "name": "psle",
       "runtimeExecutable": ".venv/bin/uvicorn",
-      "runtimeArgs": ["main:app", "--reload", "--app-dir", "app", "--port", "8000"],
+      "runtimeArgs": [
+        "main:app",
+        "--reload",
+        "--app-dir",
+        "app",
+        "--port",
+        "8000",
+        "--reload-include",
+        ".env"
+      ],
       "port": 8000
     }
   ]
