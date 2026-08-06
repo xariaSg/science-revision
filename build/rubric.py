@@ -21,7 +21,8 @@ import json
 import sys
 from pathlib import Path
 
-from syllabus import out_of_scope_from_2026, themes_for, unmapped
+from syllabus import (official_topics, out_of_scope_from_2026, themes_for,
+                      unmapped)
 
 REPO = Path(__file__).resolve().parent.parent
 WORK_QUESTIONS = REPO / "work"
@@ -122,6 +123,7 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
                 "syllabus_era": "2023" if year >= SYLLABUS_2023_FROM else "pre-2023",
                 "topics": before.get("topics", []),
                 "themes": themes_for(before.get("topics", [])),
+                "syllabus_topics": official_topics(before.get("topics", [])),
                 "out_of_scope_from_2026": out_of_scope_from_2026(
                     before.get("topics", [])),
                 "scenario_anchors": before.get("scenario_anchors") or question_anchors(

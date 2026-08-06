@@ -66,6 +66,22 @@ THEME_OF: dict[str, str] = {
     "measurement": "Skills",
 }
 
+# Official P6 topic names, read off the syllabus learning-outcomes table. Only the
+# P6 table was available, so topics examined at lower levels (heat, electricity,
+# matter, life cycles) carry a theme but no official topic name yet. PSLE examines
+# the whole P3-P6 syllabus, so this map is incomplete by construction, not by error.
+OFFICIAL_TOPIC: dict[str, str] = {
+    "forces": "Interactions of Forces",
+    "magnetism": "Interactions of Forces",
+    "interactions_within_environment": "Interactions within the Environment",
+    "food_chain": "Interactions within the Environment",
+    "adaptation": "Interactions within the Environment",
+    "survival_of_the_species": "Interactions within the Environment",
+    "photosynthesis": "Energy Forms and Uses (Photosynthesis)",
+    "respiration": "Energy Forms and Uses (Photosynthesis)",
+    "energy": "Energy Conversion",
+}
+
 # Removed from the syllabus with effect from 2026.
 RETIRED_FROM_2026 = frozenset({"cells"})
 
@@ -80,6 +96,16 @@ def themes_for(topics: list[str]) -> list[str]:
         theme = theme_for(topic)
         if theme and theme not in seen:
             seen.append(theme)
+    return seen
+
+
+def official_topics(topics: list[str]) -> list[str]:
+    """Syllabus topic names for the topics that have one."""
+    seen: list[str] = []
+    for topic in topics:
+        name = OFFICIAL_TOPIC.get(topic)
+        if name and name not in seen:
+            seen.append(name)
     return seen
 
 
