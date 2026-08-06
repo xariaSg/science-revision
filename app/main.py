@@ -15,6 +15,7 @@ Two deliberate constraints:
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from db import init_db, list_attempts, save_attempt
+from grade import GradingUnavailable, grade
 from stt import transcribe_bytes, model_name
 
 REPO = Path(__file__).resolve().parent.parent
@@ -166,6 +168,42 @@ async def transcribe(audio: UploadFile = File(...),
                             anchors=anchors)
     return {"text": text, "seconds": round(time.perf_counter() - started, 2),
             "model": model_name(), "anchors": anchors}
+
+
+@app.get("/api/grading")
+def grading_status() -> dict:
+    """Whether grading is available, so the UI can say so before a student tries."""
+    return {"available": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+
+
+@app.post("/api/grade/{year}/{question}")
+def grade_answer(year: int, question: int, payload: dict) -> dict:
+    """Mark one sub-part against its rubric.
+
+    Grading is optional by design (CLAUDE.md 2.2). When it is unavailable the
+    student can still practise, self-check against the model answer and log the
+    attempt — so this returns a 503 the UI can absorb, not an error page.
+    """
+    answer = (payload.get("answer") or "").strip()
+    if not answer:
+        raise HTTPException(400, "no answer to mark")
+
+    rubrics = load_rubrics(year)["rubrics"]
+    part = payload.get("part")
+    rubric = next((r for r in rubrics
+                   if r["question"] == question and r["part"] == part), None)
+    if rubric is None:
+        raise HTTPException(404, f"no rubric for Q{question}({part or '-'})")
+    if rubric.get("flagged"):
+        raise HTTPException(409, "this rubric is flagged for review and is not in use")
+    if not rubric.get("chains"):
+        raise HTTPException(409, "this sub-part has no rubric to mark against")
+
+    try:
+        result = grade(answer, rubric, question_context=payload.get("context", ""))
+    except GradingUnavailable as exc:
+        raise HTTPException(503, str(exc))
+    return result.as_dict()
 
 
 @app.post("/api/attempts")

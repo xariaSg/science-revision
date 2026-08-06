@@ -10,6 +10,7 @@ pyobjc-framework-Vision==12.2.1
 pyobjc-framework-Quartz==12.2.1
 
 # Track 2 — the app.
+anthropic==0.120.2
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
 python-multipart==0.0.32

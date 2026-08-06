@@ -238,3 +238,39 @@ main.single { grid-template-columns: 1fr; }
 .flagrow .flag { color: var(--muted); border-style: dashed; }
 .flagrow .flag:hover { color: var(--warn); border-color: var(--warn); }
 .flagrow .flagreason { flex: 1; min-width: 200px; padding: 5px 9px; font: inherit; border: 1px solid var(--line); border-radius: 8px; }
+
+/* --------------------------------------------------------------- grading */
+
+.feedback { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.marking { color: var(--muted); margin: 0; }
+.score { font-size: 26px; font-weight: 650; margin-bottom: 8px; }
+.score.zero { color: var(--warn); }
+
+/* The gate failure is a distinct message, not a low mark. */
+.gate { background: var(--warn-soft); border-left: 3px solid var(--warn); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 14.5px; }
+.gate strong { color: var(--warn); }
+.gate p { margin: 6px 0 0; }
+.gate code { background: #fff; border-radius: 4px; padding: 1px 5px; }
+
+.fchain { margin-bottom: 10px; }
+.fchain-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
+.flinks { list-style: none; margin: 0; padding: 0; }
+.flinks li { display: flex; gap: 8px; align-items: baseline; padding: 5px 0 5px 4px; border-left: 2px solid var(--line); margin-left: 5px; padding-left: 12px; font-size: 14.5px; }
+.flinks .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-left: -18px; }
+.link-hit .dot { background: var(--good); }
+.link-partial .dot { background: #d19a1a; }
+.link-broken .dot { background: #c0392b; }
+.link-broken { border-left-color: #eccac5; }
+.lstatus { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.link-hit .lstatus { color: var(--good); }
+.link-broken .lstatus { color: #c0392b; }
+.lnote { color: var(--ink); }
+
+.missed, .improved { margin-top: 10px; font-size: 14.5px; }
+.missed ul { margin: 4px 0 0; padding-left: 18px; }
+.improved h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.improved p { margin: 0; background: var(--accent-soft); border-radius: 8px; padding: 9px 11px; }
+
+/* Coaching only — deliberately quieter than everything above. */
+.conventions { margin-top: 12px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+.conventions ul { margin: 4px 0 0; padding-left: 18px; }

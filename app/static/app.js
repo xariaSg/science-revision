@@ -11,7 +11,7 @@ const els = {
   zoomLabel: document.getElementById("zoomLabel"),
 };
 
-const state = { year: null, questions: [], index: 0, zoom: 100 };
+const state = { year: null, questions: [], index: 0, zoom: 100, grading: false };
 
 async function getJSON(url) {
   const res = await fetch(url);
@@ -90,12 +90,16 @@ function partCard(question, part, index) {
     <textarea placeholder="Say your answer, or type it here."></textarea>
     <p class="hint">Whisper can mishear science words — read the transcript and fix it before you mark yourself.</p>
     <div class="controls" style="margin-top:10px">
-      <button class="reveal" type="button">Reveal model answer</button>
+      ${state.grading && !part.drawn
+        ? `<button class="mark" type="button">Mark my answer</button>` : ""}
       <button class="save" type="button">Save attempt</button>
+      <button class="reveal" type="button">Reveal model answer</button>
       <span class="saved status"></span>
     </div>
+    <div class="feedback" hidden></div>
     <div class="model" hidden></div>`;
 
+  const feedback = card.querySelector(".feedback");
   const rec = card.querySelector(".rec");
   const status = card.querySelector(".status");
   const box = card.querySelector("textarea");
@@ -135,6 +139,35 @@ function partCard(question, part, index) {
     }
   });
 
+  const markBtn = card.querySelector(".mark");
+  if (markBtn) {
+    markBtn.addEventListener("click", async () => {
+      const answer = box.value.trim();
+      if (!answer) { saved.textContent = "Say or type your answer first."; return; }
+      markBtn.disabled = true;
+      feedback.hidden = false;
+      feedback.innerHTML = `<p class="marking">Marking…</p>`;
+      try {
+        const res = await fetch(
+          `/api/grade/${state.year}/${question.question}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ part: part.part, answer }),
+          });
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        const result = await res.json();
+        selfMark = result.marks_awarded;
+        feedback.innerHTML = feedbackHTML(result);
+      } catch (err) {
+        feedback.innerHTML =
+          `<p class="caveat">Could not mark it: ${err.message}. ` +
+          `You can still reveal the answer and mark yourself.</p>`;
+      } finally {
+        markBtn.disabled = false;
+      }
+    });
+  }
+
   card.querySelector(".save").addEventListener("click", async () => {
     const answer = box.value.trim();
     if (!answer) { saved.textContent = "Nothing to save yet."; return; }
@@ -157,6 +190,65 @@ function partCard(question, part, index) {
   });
 
   return card;
+}
+
+// The chain rendered against the student's own reasoning, with the break shown at
+// the exact link where it stopped. Seeing your own arrow stop short teaches the
+// habit better than any prose comment does.
+function feedbackHTML(result) {
+  const gateFailed = !result.context_gate.passed;
+
+  const gate = gateFailed
+    ? `<div class="gate">
+         <strong>This reads as a textbook answer.</strong>
+         <p>The science is fine, but a marker would give zero because it does not
+         answer <em>this</em> question — it never uses
+         ${result.context_gate.anchors_used.length
+            ? result.context_gate.anchors_used.map((a) => `<code>${a}</code>`).join(", ")
+            : "the specific things this question is about"}.
+         That is the mark, and it is worth knowing now.</p>
+         ${result.context_gate.note ? `<p>${result.context_gate.note}</p>` : ""}
+       </div>`
+    : "";
+
+  const chains = result.chains.map((chain) => `
+    <div class="fchain">
+      <div class="fchain-head">${chain.chain_id}</div>
+      <ol class="flinks">
+        ${chain.links.map((link) => `
+          <li class="link-${link.status}">
+            <span class="dot"></span>
+            <span class="lstatus">${link.status}</span>
+            ${link.note ? `<span class="lnote">${link.note}</span>` : ""}
+          </li>`).join("")}
+      </ol>
+    </div>`).join("");
+
+  const missed = result.missed_summary.length
+    ? `<div class="missed"><strong>Next step</strong><ul>${
+        result.missed_summary.map((m) => `<li>${m}</li>`).join("")}</ul></div>`
+    : "";
+
+  const improved = result.improved_answer
+    ? `<div class="improved"><h4>Your answer, taken all the way</h4>
+       <p>${result.improved_answer}</p></div>` : "";
+
+  // Coaching, visually subordinate and explicitly not part of the mark.
+  const conventions = result.convention_notes.length
+    ? `<div class="conventions"><strong>Wording tips</strong>
+       — these did not change your mark
+       <ul>${result.convention_notes.map((c) => `<li>${c}</li>`).join("")}</ul></div>`
+    : "";
+
+  const incomplete = result.incomplete_attempt
+    ? `<p class="caveat">That answer trailed off — it looks unfinished rather than
+       wrong. Have another go at saying the whole thing.</p>` : "";
+
+  return `
+    <div class="score${gateFailed ? " zero" : ""}">
+      ${result.marks_awarded} / ${result.marks_total}
+    </div>
+    ${gate}${incomplete}${chains}${missed}${improved}${conventions}`;
 }
 
 // Raising a doubt is most useful at the moment it appears — with the answer in
@@ -295,6 +387,9 @@ async function loadPaper(year) {
 }
 
 async function init() {
+  try {
+    state.grading = (await getJSON("/api/grading")).available;
+  } catch { state.grading = false; }
   let papers;
   try {
     papers = await getJSON("/api/papers");
