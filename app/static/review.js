@@ -2,11 +2,22 @@
 
 const els = {
   year: document.getElementById("year"),
+  filter: document.getElementById("filter"),
+  reload: document.getElementById("reload"),
   queue: document.getElementById("queue"),
   progress: document.getElementById("progress"),
 };
 
-const state = { year: null };
+// Default to the work queue. Landing on rubrics already signed off buries the
+// ones still needing a decision, which is the whole reason to open this page.
+const state = { year: null, filter: "pending" };
+
+const FILTERS = {
+  pending: { label: "To review", match: (r) => !r.reviewed && !r.rejected },
+  approved: { label: "Approved", match: (r) => r.reviewed },
+  rejected: { label: "Needs work", match: (r) => r.rejected },
+  all: { label: "All", match: () => true },
+};
 
 async function getJSON(url) {
   const res = await fetch(url);
@@ -107,11 +118,18 @@ function card(rubric) {
       });
       if (!res.ok) throw new Error(await res.text());
       rubric.reviewed = approved;
+      rubric.rejected = !approved;
       el.classList.toggle("approved", approved);
       el.classList.toggle("rejected", !approved);
       el.querySelector(".state").textContent = approved ? "approved" : "needs work";
       saved.textContent = "Saved.";
       refreshProgress();
+      // Fade the card out of the pending list rather than yanking it away
+      // mid-scroll, which loses the reader's place.
+      if (state.filter === "pending") {
+        el.classList.add("settled");
+        setTimeout(() => { if (state.filter === "pending") el.remove(); }, 900);
+      }
     } catch (err) {
       saved.textContent = `Could not save: ${err.message}`;
     }
@@ -124,25 +142,58 @@ function card(rubric) {
 
 let queue = { total: 0, authored: 0, rubrics: [] };
 
+function counts() {
+  const out = {};
+  for (const [key, spec] of Object.entries(FILTERS)) {
+    out[key] = queue.rubrics.filter(spec.match).length;
+  }
+  return out;
+}
+
 function refreshProgress() {
-  const approved = queue.rubrics.filter((r) => r.reviewed).length;
+  const n = counts();
   els.progress.textContent =
-    `${approved} of ${queue.authored} authored approved · ` +
-    `${queue.total - queue.authored} still unauthored`;
+    `${n.approved} approved · ${n.pending} to review` +
+    (n.rejected ? ` · ${n.rejected} need work` : "") +
+    ` · ${queue.total - queue.authored} unauthored`;
+  const selected = els.filter.value || state.filter;
+  els.filter.innerHTML = Object.entries(FILTERS)
+    .map(([key, spec]) => `<option value="${key}">${spec.label} (${n[key]})</option>`)
+    .join("");
+  els.filter.value = selected;
+}
+
+function renderQueue() {
+  const match = FILTERS[state.filter].match;
+  const visible = queue.rubrics.filter(match);
+  els.queue.innerHTML = "";
+  if (!visible.length) {
+    els.queue.innerHTML = state.filter === "pending"
+      ? `<p class="empty">Nothing left to review for ${state.year}. ` +
+        `${queue.total - queue.authored} rubric(s) still have no chains authored.</p>`
+      : `<p class="empty">Nothing here.</p>`;
+    return;
+  }
+  for (const rubric of visible) els.queue.append(card(rubric));
 }
 
 async function loadYear(year) {
   state.year = year;
   els.queue.innerHTML = `<p class="empty">Loading…</p>`;
   queue = await getJSON(`/api/review/${year}`);
-  els.queue.innerHTML = "";
+  for (const rubric of queue.rubrics) {
+    // The API reports approval; a recorded rejection is the other decided state.
+    rubric.rejected = !rubric.reviewed && Boolean(rubric.reviewed_at);
+  }
   if (!queue.rubrics.length) {
     els.queue.innerHTML =
       `<p class="empty">No rubrics have chains yet for ${year}. ` +
       `Author them in build/authored/${year}.py first.</p>`;
+    els.progress.textContent = "";
+    return;
   }
-  for (const rubric of queue.rubrics) els.queue.append(card(rubric));
   refreshProgress();
+  renderQueue();
 }
 
 async function init() {
@@ -150,6 +201,11 @@ async function init() {
   els.year.innerHTML = papers
     .map((p) => `<option value="${p.year}">${p.year}</option>`).join("");
   els.year.addEventListener("change", () => loadYear(Number(els.year.value)));
+  els.filter.addEventListener("change", () => {
+    state.filter = els.filter.value;
+    renderQueue();
+  });
+  els.reload.addEventListener("click", () => loadYear(state.year));
   await loadYear(papers[0].year);
 }
 
