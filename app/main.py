@@ -30,6 +30,11 @@ from stt import transcribe_bytes, model_name
 
 REPO = Path(__file__).resolve().parent.parent
 WORK_DIR = REPO / "work"
+# The backfilled papers were unpacked as Booklet B only, so they live here rather
+# than in work/, which holds the two full-paper unpacks the pipeline was built on.
+# Each paper's questions.json numbers its own pages, so the two roots need no
+# reconciling — only searching in order, with work/ winning if a year is in both.
+WORK_ROOTS = (WORK_DIR, REPO / "work-b")
 RUBRIC_DIR = REPO / "rubrics"
 FLAGS_FILE = REPO / "review" / "flags.json"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -59,10 +64,24 @@ app = FastAPI(title="PSLE Booklet B")
 
 
 def paper_dir(year: int) -> Path:
-    path = WORK_DIR / str(year)
-    if not (path / "questions.json").exists():
-        raise HTTPException(404, f"no indexed paper for {year}")
-    return path
+    for root in WORK_ROOTS:
+        path = root / str(year)
+        if (path / "questions.json").exists():
+            return path
+    raise HTTPException(404, f"no indexed paper for {year}")
+
+
+def indexed_years() -> list[int]:
+    """Every year with a question inventory, across both work roots."""
+    years: dict[int, None] = {}
+    for root in WORK_ROOTS:
+        if not root.exists():
+            continue
+        for path in sorted(root.iterdir()):
+            if (path.is_dir() and path.name.isdigit()
+                    and (path / "questions.json").exists()):
+                years.setdefault(int(path.name), None)
+    return sorted(years)
 
 
 def load_questions(year: int) -> dict:
@@ -77,12 +96,8 @@ def _startup() -> None:
 @app.get("/api/papers")
 def papers() -> list[dict]:
     out = []
-    for path in sorted(WORK_DIR.iterdir()) if WORK_DIR.exists() else []:
-        if not (path.is_dir() and path.name.isdigit()):
-            continue
-        if not (path / "questions.json").exists():
-            continue
-        data = json.loads((path / "questions.json").read_text())
+    for year in indexed_years():
+        data = load_questions(year)
         out.append({
             "year": data["year"],
             "questions": len(data["questions"]),
@@ -239,9 +254,7 @@ def progress_all() -> dict:
 def _progress(year: int | None) -> dict:
     from collections import defaultdict
 
-    years = [year] if year is not None else [
-        int(p.name) for p in WORK_DIR.iterdir()
-        if p.is_dir() and p.name.isdigit() and (p / "questions.json").exists()]
+    years = [year] if year is not None else indexed_years()
 
     # Rubric topics/themes keyed by sub-part, so a weak area can be named.
     meta: dict[tuple[int, int, str | None], dict] = {}
@@ -303,7 +316,7 @@ def _progress(year: int | None) -> dict:
 
     never: list[dict] = []
     for y in years:
-        data = json.loads((WORK_DIR / str(y) / "questions.json").read_text())
+        data = load_questions(y)
         for q in data["questions"]:
             for part in q["parts"]:
                 if part.get("is_parent"):
