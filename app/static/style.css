@@ -36,7 +36,7 @@ header {
 
 h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
 
-.pickers { display: flex; gap: 14px; }
+.pickers { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 .pickers label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 select, button {
   font: inherit;
@@ -206,6 +206,9 @@ textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--acce
   #pages { max-height: 50vh; }
   /* No horizontal split to drag when the panes are stacked. */
   #splitter { display: none; }
+  /* "Booklet A" alone still says which one you are in, and the pair then fits on a
+     line beside the pickers instead of wrapping to four. */
+  .booklets button span { display: none; }
 }
 
 /* ---------------------------------------------------------------- review UI */
@@ -372,3 +375,290 @@ main.single { grid-template-columns: 1fr; }
 
 .untouched { display: flex; flex-wrap: wrap; gap: 6px; }
 .untouched span { font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; }
+
+/* ------------------------------------------------------- booklet A: the MCQs */
+
+/* A segmented control rather than a third dropdown: which booklet you are in
+   changes the whole right-hand pane, so it should be visible at a glance and not
+   hidden behind a click. */
+.booklets { display: flex; flex: none; }
+.booklets button {
+  font-size: 13px; padding: 6px 12px; color: var(--muted);
+  border-radius: 0; margin-left: -1px; white-space: nowrap;
+}
+.booklets button:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.booklets button:last-child { border-radius: 0 8px 8px 0; }
+.booklets button.on {
+  background: var(--accent-soft); border-color: var(--accent);
+  color: var(--accent); font-weight: 600; z-index: 1;
+}
+
+.options { display: flex; gap: 10px; flex-wrap: wrap; }
+.option {
+  flex: 1 1 0; min-width: 64px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 14px 10px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.option:hover { border-color: var(--accent); }
+.option input { accent-color: var(--accent); width: 17px; height: 17px; cursor: pointer; }
+.optnum { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+/* Selected, before it is marked. */
+.option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.option:has(input:disabled) { cursor: default; }
+.option:has(input:disabled):hover { border-color: var(--line); }
+
+/* After marking. The right answer is always shown, whether or not it was picked —
+   seeing it beside your own choice is the part that teaches. */
+.option.right {
+  border-color: var(--good); background: #eaf6ef; color: var(--good);
+}
+.option.right::after { content: "✓"; font-weight: 700; }
+.option.wrong {
+  border-color: #d9a9a2; background: #fdf3f1; color: #a33a2b;
+}
+.option.wrong::after { content: "✗"; font-weight: 700; }
+.option.right:hover { border-color: var(--good); }
+.option.wrong:hover { border-color: #d9a9a2; }
+
+.mcqline { font-size: 15px; margin: 4px 0 10px; }
+.mcq .feedback .caveat {
+  margin-top: 10px; font-size: 12.5px; color: var(--warn);
+  background: var(--warn-soft); padding: 7px 9px; border-radius: 6px;
+}
+
+/* ------------------------------------------------------------------- screens */
+
+.screen[hidden] { display: none; }
+.crumb {
+  border: none; background: none; padding: 0 8px 0 0;
+  color: var(--muted); font: inherit; font-size: 14px;
+}
+.crumb:hover { color: var(--accent); }
+
+/* ---------------------------------------------------------------------- home */
+
+.home {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 48px 20px 40px;
+}
+.home-head {
+  display: block;
+  position: static;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: center;
+  margin-bottom: 28px;
+}
+.home-head h1 { font-size: 26px; letter-spacing: -0.02em; }
+.home-head p { margin: 6px 0 0; color: var(--muted); font-size: 15px; }
+
+.home .back {
+  border: none; background: none; color: var(--muted);
+  padding: 0; margin-bottom: 14px; font-size: 14px;
+}
+.home .back:hover { color: var(--accent); }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.card-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  text-align: left;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.card-pick:hover:not(:disabled) { transform: translateY(-1px); }
+.card-title { font-size: 19px; font-weight: 650; }
+.card-hint, .card-meta { font-size: 13px; color: var(--muted); }
+.home-foot { margin-top: 32px; text-align: center; }
+
+/* ------------------------------------------------------------------- chinese */
+
+#cnPractice main {
+  /* Its own split value: the Chinese paper pane holds a whole booklet rather
+     than one question, so it is worth more room than Science's default. */
+  grid-template-columns: var(--cn-split, 50%) 10px minmax(0, 1fr);
+}
+#cnSplitter {
+  align-self: stretch; min-height: 200px; cursor: col-resize;
+  position: relative; border-radius: 999px; touch-action: none;
+}
+#cnSplitter::before { content: ""; position: absolute; inset: 0 -5px; }
+#cnSplitter::after {
+  content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+  top: 8px; bottom: 8px; width: 3px; border-radius: 999px;
+  background: var(--line); transition: background 0.15s ease;
+}
+#cnSplitter:hover::after, #cnSplitter:focus-visible::after { background: var(--accent); }
+#cnSplitter:focus-visible { outline: none; }
+
+#cnPaper { position: relative; }
+#cnPages { overflow: auto; max-height: 88vh; border-radius: 8px; background: #eef0f4; }
+.cn-page img { display: block; width: 100%; margin: 0 auto 10px; background: #fff; }
+
+#cnAnswers { max-height: 92vh; overflow: auto; }
+#cnList { display: flex; flex-direction: column; gap: 10px; }
+
+.cn-section {
+  margin: 16px 0 2px;
+  font-size: 15px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.cn-section:first-child { margin-top: 0; }
+.cn-section .grp {
+  font-size: 12px; color: var(--accent);
+  background: var(--accent-soft); padding: 1px 7px; border-radius: 999px;
+}
+.cn-section .hint { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: 400; }
+
+.cn-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--panel);
+  scroll-margin-top: 10px;
+}
+.cn-card.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cn-card.done { background: #fbfcfd; }
+.cn-card.done.right { border-color: #bfe0cb; background: #f6fbf8; }
+
+.cn-card-head { display: flex; align-items: baseline; gap: 10px; }
+.cn-card-head h3 { margin: 0; font-size: 16px; }
+.cn-card-head .linkbtn.tiny {
+  margin-left: auto; font-size: 12px; padding: 2px 8px; border: none; color: var(--muted);
+}
+.cn-card-head .linkbtn.tiny:hover { color: var(--accent); }
+.cn-card-body { margin-top: 8px; }
+
+.options { display: flex; gap: 6px; flex-wrap: wrap; }
+.cn-card .option {
+  min-width: 40px; padding: 7px 0; flex: 0 0 auto;
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+.cn-card .option.chosen { border-color: var(--accent); }
+.cn-card .option.correct { border-color: var(--good); color: var(--good); background: #f2f9f5; }
+.cn-card .option.wrong { border-color: #d34a4a; color: #d34a4a; background: #fdf1f1; }
+
+textarea.cn-answer { min-height: 0; margin-top: 0; line-height: 1.7; }
+.cn-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.cn-actions .primary { border-color: var(--accent); color: var(--accent); }
+
+.cn-feedback:not(:empty) { margin-top: 10px; }
+.cn-feedback .verdict { margin: 0 0 4px; font-weight: 650; font-size: 15px; }
+.cn-feedback .verdict.ok { color: var(--good); }
+.cn-feedback .verdict.no { color: #b4453f; }
+.cn-feedback .verdict.part { color: var(--warn); }
+.cn-feedback .verdict .muted { font-weight: 400; color: var(--muted); font-size: 13px; }
+.cn-feedback .note { margin: 4px 0; font-size: 14.5px; line-height: 1.7; }
+.cn-feedback .error { color: #b4453f; font-size: 13.5px; margin: 4px 0; }
+.cn-feedback .source { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+
+.kps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.kps .kp { display: flex; gap: 8px; align-items: baseline; font-size: 14px; line-height: 1.6; }
+.kps .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--line); }
+.kps .kp.hit .dot { background: var(--good); }
+.kps .kp.partial .dot { background: var(--warn); }
+.kps .kp.miss .dot { background: #d9a2a2; }
+.kps.points { gap: 6px; }
+.kps.points li { display: flex; gap: 8px; font-size: 14px; line-height: 1.7; }
+.kpmark {
+  flex: 0 0 auto; font-size: 12px; color: var(--accent);
+  background: var(--accent-soft); border-radius: 999px; padding: 1px 7px; height: fit-content;
+}
+
+.cn-feedback .model { background: var(--accent-soft); border-radius: 8px; padding: 10px; margin-top: 8px; }
+.cn-feedback .model .label {
+  margin: 0 0 4px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--accent);
+}
+.cn-feedback .model p { margin: 0 0 4px; font-size: 14.5px; line-height: 1.75; }
+.cn-feedback .model .muted { color: var(--muted); font-size: 13px; }
+.cn-feedback details.model summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+
+.selfmark { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.selfmark span { font-size: 13px; color: var(--muted); }
+.selfmark button { min-width: 34px; padding: 4px 0; text-align: center; }
+.selfmark button.on { border-color: var(--good); color: var(--good); background: #f2f9f5; }
+
+#cnScore { font-size: 13px; color: var(--muted); align-self: center; }
+#cnScore strong { color: var(--ink); font-weight: 650; }
+#cnScore .dot { opacity: 0.5; margin: 0 2px; }
+/* Paired with the width/height attributes: keeps the reserved box in the page's
+   real proportions at any zoom, so an unloaded page is exactly as tall as a
+   loaded one. */
+.cn-page img { height: auto; }
+
+/* -------------------------------------------------- chinese: finish & results */
+
+#cnFinishBar {
+  position: sticky;
+  bottom: -10px;      /* cancels the pane's own bottom padding */
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 2px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+#cnFinishBar[hidden] { display: none; }
+/* The last card must clear the bar rather than sit behind it. */
+#cnList { padding-bottom: 6px; }
+#cnFinish {
+  border-color: var(--accent); color: var(--accent);
+  font-weight: 600; white-space: nowrap;
+}
+#cnFinish:disabled { border-color: var(--line); color: var(--muted); }
+#cnProgress { font-size: 13px; color: var(--muted); }
+
+/* Answered, but not yet marked — a quiet "this one is done", carrying no verdict. */
+.cn-card.answered:not(.marked) { border-color: #c8d4e6; }
+.cn-card .option.chosen {
+  border-color: var(--accent); color: var(--accent); background: var(--accent-soft);
+}
+/* Once marked, the verdict outranks the selection: an option that was both
+   chosen and correct must read as correct, not merely as picked. */
+.cn-card.marked .option.correct {
+  border-color: var(--good); color: var(--good); background: #f2f9f5;
+}
+.cn-card.marked .option.wrong {
+  border-color: #d34a4a; color: #d34a4a; background: #fdf1f1;
+}
+.cn-card.marked .option.chosen:not(.correct):not(.wrong) {
+  border-color: var(--line); color: var(--ink); background: var(--panel);
+}
+.cn-card.marked .option:disabled { opacity: 1; }
+
+#cnSummary {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: var(--accent-soft);
+}
+#cnSummary .label {
+  margin: 0; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--accent);
+}
+#cnSummary .total { margin: 2px 0 6px; font-size: 15px; }
+#cnSummary .total strong { font-size: 30px; letter-spacing: -0.02em; }
+#cnSummary .total span { color: var(--muted); }
+#cnSummary .muted { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+#cnSummary button { background: var(--panel); }

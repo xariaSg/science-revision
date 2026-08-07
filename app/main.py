@@ -1,15 +1,20 @@
-"""FastAPI app: browse Booklet B questions, answer them aloud, self-check.
+"""FastAPI app: practise a PSLE Science paper against its original scanned pages.
 
-Phase 2 -- no grading. The student picks a question, reads it off the original
-scanned page, answers each sub-part by voice or typing, corrects the transcript, and
-reveals the model answer to mark themselves.
+Both booklets, sharing the same shape -- the student picks a question, reads it off
+the scan, and answers it beside the page:
 
-Two deliberate constraints:
+* Booklet B is open-ended. The answer is spoken or typed, transcribed locally, and
+  marked against a rubric (or self-marked when grading is unavailable).
+* Booklet A is multiple choice. The answer is one of four options, marked against
+  the answer key, which needs no API key and never fails.
 
-* Only Booklet B pages are served. The papers also contain the answer pages, and
+Two deliberate constraints, and they apply to both:
+
+* Only question pages are served. The papers also contain the answer pages, and
   serving whole papers would put the answers one URL guess away.
-* The model answer is a separate, explicit request. It is never included in the
-  question payload, so it cannot be read out of the page source before attempting.
+* The answer is a separate, explicit request -- the model answer for Booklet B, the
+  correct option for Booklet A. Neither is in the question payload, so neither can
+  be read out of the page source before attempting.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+import chinese
 from db import init_db, list_attempts, save_attempt
 from grade import GradingUnavailable, grade
 from stt import transcribe_bytes, model_name
@@ -35,6 +41,10 @@ WORK_DIR = REPO / "work"
 # Each paper's questions.json numbers its own pages, so the two roots need no
 # reconciling — only searching in order, with work/ winning if a year is in both.
 WORK_ROOTS = (WORK_DIR, REPO / "work-b")
+# Booklet A: the question inventory sits with the rendered pages, the answer key
+# with the answer pages it was read from.
+WORK_A = REPO / "work-a"
+WORK_ANS = REPO / "work-ans"
 RUBRIC_DIR = REPO / "rubrics"
 FLAGS_FILE = REPO / "review" / "flags.json"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -60,7 +70,39 @@ def _load_env_file(path: Path = REPO / ".env") -> None:
 
 _load_env_file()
 
-app = FastAPI(title="PSLE Booklet B")
+app = FastAPI(title="PSLE practice")
+app.include_router(chinese.router)
+
+
+# Science splits into two booklets that are practised separately; Chinese Paper 2
+# is one booklet and loads whole. The UI branches on `modes`, so adding a subject
+# does not mean teaching the front end a new special case.
+SUBJECTS = [
+    {
+        "id": "science",
+        "label": "Science",
+        "modes": [
+            {"id": "A", "label": "Booklet A", "hint": "multiple choice"},
+            {"id": "B", "label": "Booklet B", "hint": "written"},
+        ],
+    },
+    {
+        "id": "chinese",
+        "label": "华文 Chinese",
+        "modes": [],
+    },
+]
+
+
+@app.get("/api/subjects")
+def subjects() -> list[dict]:
+    """Which subjects have papers indexed, and how each is practised."""
+    years = {
+        "science": sorted(set(indexed_years()) | set(mcq_years())),
+        "chinese": chinese.indexed_years(),
+    }
+    return [{**subject, "years": years.get(subject["id"], [])}
+            for subject in SUBJECTS if years.get(subject["id"])]
 
 
 def paper_dir(year: int) -> Path:
@@ -166,7 +208,7 @@ def answer(year: int, question: int) -> dict:
 
     The explanation is returned as its own field so the UI can hold it back until
     after the mark: the model answer drives the marking, the explanation drives the
-    teaching (CLAUDE.md 1.5).
+    teaching (CLAUDE.md 1.6).
     """
     path = RUBRIC_DIR / f"{year}.json"
     if not path.exists():
@@ -184,6 +226,152 @@ def answer(year: int, question: int) -> dict:
                    "flagged": bool(r.get("flagged")),
                    "flag_reason": r.get("flag_reason", "")}
                   for r in parts],
+    }
+
+
+"""Booklet A -- multiple choice.
+
+The same shape as Booklet B above and for the same reasons: the original page is
+served and the student answers beside it. Two differences follow from it being
+multiple choice.
+
+First, marking is a comparison rather than a judgement, so it needs no API key and
+never fails -- Booklet A works whether or not grading is available.
+
+Second, the answer is one digit, which makes hiding it until it is asked for more
+important here than there, not less. The questions payload carries no key, and the
+option a question was answered with only comes back once a choice has been sent.
+"""
+
+
+def mcq_dir(year: int) -> Path:
+    path = WORK_A / str(year)
+    if not (path / "questions.json").exists():
+        raise HTTPException(404, f"no indexed Booklet A for {year}")
+    return path
+
+
+def load_mcq(year: int) -> dict:
+    return json.loads((mcq_dir(year) / "questions.json").read_text())
+
+
+def load_mcq_key(year: int) -> dict:
+    path = WORK_ANS / str(year) / "mcq-answers.json"
+    if not path.exists():
+        raise HTTPException(404, f"no answer key for {year}; run "
+                                 f"build/extract_mcq_key.py")
+    return json.loads(path.read_text())
+
+
+def mcq_years() -> list[int]:
+    if not WORK_A.exists():
+        return []
+    return sorted(int(path.name) for path in WORK_A.iterdir()
+                  if path.is_dir() and path.name.isdigit()
+                  and (path / "questions.json").exists())
+
+
+@app.get("/api/mcq/papers")
+def mcq_papers() -> list[dict]:
+    out = []
+    for year in mcq_years():
+        data = load_mcq(year)
+        out.append({
+            "year": year,
+            "questions": len(data["questions"]),
+            "marks": data["stated_total_marks"],
+            "needs_review": data["needs_review"],
+        })
+    return out
+
+
+@app.get("/api/mcq/papers/{year}/questions")
+def mcq_questions(year: int) -> dict:
+    data = load_mcq(year)
+    marks = data.get("marks_per_question")
+    return {
+        "year": year,
+        "booklet_a": data["booklet_a"],
+        "marks_per_question": marks,
+        "stated_total_marks": data["stated_total_marks"],
+        "questions": [{"question": q["question"], "pages": q["pages"],
+                       "marks": marks}
+                      for q in data["questions"]],
+    }
+
+
+@app.get("/api/mcq/papers/{year}/pages/{page}")
+def mcq_page_image(year: int, page: int) -> FileResponse:
+    data = load_mcq(year)
+    booklet_a = data["booklet_a"]
+    if not booklet_a["start"] <= page <= booklet_a["end"]:
+        raise HTTPException(403, "only Booklet A pages are available")
+    path = mcq_dir(year) / "pages" / f"page-{page:03d}.png"
+    if not path.exists():
+        raise HTTPException(404, "page not found")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.post("/api/mcq/papers/{year}/answer/{question}")
+def mcq_answer(year: int, question: int, payload: dict) -> dict:
+    """Mark one MCQ against the key, and log it.
+
+    Logged here rather than on a separate Save click, for the same reason the
+    graded Booklet B attempt is: a mark the student never saved is a mark the
+    paper total never sees.
+    """
+    choice = payload.get("choice")
+    if choice not in (1, 2, 3, 4):
+        raise HTTPException(400, "choose one of options 1 to 4")
+
+    key = load_mcq_key(year)
+    entry = next((a for a in key["answers"] if a["question"] == question), None)
+    if entry is None:
+        raise HTTPException(404, f"no answer key for Q{question}")
+
+    marks_total = load_mcq(year).get("marks_per_question") or 0
+    correct = choice == entry["answer"]
+    marks = marks_total if correct else 0
+
+    save_attempt({
+        "year": year, "booklet": "A", "question": question, "part": None,
+        "mode": "mcq", "answer": str(choice),
+        "marks": marks, "marks_total": marks_total, "graded": True,
+    })
+    return {
+        "question": question,
+        "choice": choice,
+        "answer": entry["answer"],
+        "correct": correct,
+        "marks": marks,
+        "marks_total": marks_total,
+        "explanation": entry.get("explanation", ""),
+        # An answer the pipeline had to reconstruct is worth saying so about, so a
+        # confident-looking "you were wrong" can be doubted when it deserves to be.
+        "answer_source": entry.get("answer_source"),
+        "source": key.get("source", "EPH suggested answer"),
+    }
+
+
+@app.get("/api/mcq/papers/{year}/score")
+def mcq_score(year: int) -> dict:
+    """Marks earned across Booklet A, best attempt per question."""
+    data = load_mcq(year)
+    per_question = data.get("marks_per_question") or 0
+    slots = [q["question"] for q in data["questions"]]
+
+    best: dict[int, int] = {}
+    for row in list_attempts(year=year, booklet="A"):
+        if row["marks"] is None:
+            continue
+        best[row["question"]] = max(best.get(row["question"], 0), int(row["marks"]))
+
+    return {
+        "year": year,
+        "earned": sum(best.get(q, 0) for q in slots),
+        "available": per_question * len(slots),
+        "attempted": len(best),
+        "slots": len(slots),
     }
 
 
@@ -223,7 +411,7 @@ def paper_score(year: int) -> dict:
     available = sum(marks for _, _, marks in slots)
 
     best: dict[tuple[int, str | None], int] = {}
-    for row in list_attempts(year=year):
+    for row in list_attempts(year=year, booklet="B"):
         if row["marks"] is None:
             continue
         key = (row["question"], row["part"])
@@ -265,7 +453,9 @@ def _progress(year: int | None) -> dict:
         for r in json.loads(path.read_text())["rubrics"]:
             meta[(y, r["question"], r["part"])] = r
 
-    rows = [row for y in years for row in list_attempts(year=y)]
+    # Booklet B only: everything below is keyed to its rubrics, and the MCQ log has
+    # no chains, facets or topics to roll up.
+    rows = [row for y in years for row in list_attempts(year=y, booklet="B")]
 
     by_day: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
     topic_stat: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
@@ -519,7 +709,8 @@ def index() -> HTMLResponse:
 
 def _shell(name: str) -> HTMLResponse:
     html = (STATIC_DIR / name).read_text()
-    for asset in ("style.css", "app.js", "review.js", "progress.js"):
+    for asset in ("style.css", "app.js", "chinese.js", "review.js",
+                  "progress.js"):
         path = STATIC_DIR / asset
         if path.exists():
             html = html.replace(f"/{asset}", f"/{asset}?v={int(path.stat().st_mtime)}")

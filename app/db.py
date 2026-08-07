@@ -19,10 +19,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS attempts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at  TEXT    NOT NULL,
+    subject     TEXT    NOT NULL DEFAULT 'science', -- 'science' | 'chinese'
     year        INTEGER NOT NULL,
+    booklet     TEXT    NOT NULL DEFAULT 'B', -- 'A' (MCQ) | 'B' (open-ended)
     question    INTEGER NOT NULL,
     part        TEXT,
-    mode        TEXT    NOT NULL,          -- 'voice' | 'typed'
+    mode        TEXT    NOT NULL,          -- 'voice' | 'typed' | 'mcq'
     answer      TEXT    NOT NULL,          -- as submitted, after any correction
     transcript  TEXT,                      -- raw transcript before correction
     marks       INTEGER,                   -- awarded, by the grader or self-marked
@@ -34,7 +36,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     topics      TEXT                        -- rubric topics, JSON, for weak-area rollup
 );
 CREATE INDEX IF NOT EXISTS attempts_by_question
-    ON attempts (year, question, part);
+    ON attempts (subject, year, question, part);
 """
 
 
@@ -53,6 +55,15 @@ LATER_COLUMNS = {
     "outcomes": "TEXT",
     "gate_passed": "INTEGER",
     "topics": "TEXT",
+    # Every attempt logged before Booklet A existed was a Booklet B one, which is
+    # what the default backfills. Question numbers do not currently collide between
+    # the booklets -- B continues A's numbering -- but that is the paper's
+    # convention, not something the log should depend on.
+    "booklet": "TEXT NOT NULL DEFAULT 'B'",
+    # Every attempt logged before Chinese existed was a Science one, which is what
+    # the default backfills. Question numbers collide freely across subjects --
+    # both papers have a Q1 -- so nothing may read the log without a subject.
+    "subject": "TEXT NOT NULL DEFAULT 'science'",
 }
 
 
@@ -72,7 +83,9 @@ def _json(value) -> str | None:
 def save_attempt(payload: dict) -> dict:
     row = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "subject": payload.get("subject", "science"),
         "year": int(payload["year"]),
+        "booklet": payload.get("booklet", "B"),
         "question": int(payload["question"]),
         "part": payload.get("part"),
         "mode": payload["mode"],
@@ -89,24 +102,36 @@ def save_attempt(payload: dict) -> dict:
     }
     with connect() as conn:
         cursor = conn.execute(
-            "INSERT INTO attempts (created_at, year, question, part, mode, answer,"
-            " transcript, marks, marks_total, graded, claims, outcomes, gate_passed,"
-            " topics)"
-            " VALUES (:created_at, :year, :question, :part, :mode, :answer,"
+            "INSERT INTO attempts (created_at, subject, year, booklet, question,"
+            " part, mode, answer, transcript, marks, marks_total, graded, claims,"
+            " outcomes, gate_passed, topics)"
+            " VALUES (:created_at, :subject, :year, :booklet, :question, :part,"
+            " :mode, :answer,"
             " :transcript, :marks, :marks_total, :graded, :claims, :outcomes,"
             " :gate_passed, :topics)", row)
         row["id"] = cursor.lastrowid
     return row
 
 
-def list_attempts(year: int | None = None, question: int | None = None) -> list[dict]:
-    clauses, params = [], []
+def list_attempts(year: int | None = None, question: int | None = None,
+                  booklet: str | None = None,
+                  subject: str = "science") -> list[dict]:
+    """Attempts for one subject.
+
+    `subject` is not optional-by-default the way the other filters are: Science
+    Q1 and Chinese Q1 are different questions, so a caller that forgets it would
+    silently mix two papers' marks into one score.
+    """
+    clauses, params = ["subject = ?"], [subject]
     if year is not None:
         clauses.append("year = ?")
         params.append(year)
     if question is not None:
         clauses.append("question = ?")
         params.append(question)
+    if booklet is not None:
+        clauses.append("booklet = ?")
+        params.append(booklet)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     with connect() as conn:
         rows = conn.execute(

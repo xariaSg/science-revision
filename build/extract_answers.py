@@ -4,7 +4,7 @@ Replaces the tesseract draft in segment_answers.py for the answer pages. That pa
 worked from word boxes and fought the scan the whole way: it merged lines across the
 column gutter, read the dotted rule as tokens, and clipped the underlined
 "Explanation:" heading to "ion:" -- which mattered most of all, because the heading
-is the boundary between the two fields (CLAUDE.md section 1.5). The model answer
+is the boundary between the two fields (CLAUDE.md section 1.6). The model answer
 drives marking; the explanation drives teaching and is revealed after the mark.
 
 Vision returns whole lines, correctly ordered and cleanly split by column, so the
@@ -45,7 +45,7 @@ FURNITURE_RE = re.compile(
     r"PSLE\s+Yearly\s+Science|Educational\s+Publishing\s+House|^\s*\d{1,2}\s*$", re.I)
 ROMANS = {"i", "ii", "iii", "iv", "v"}
 
-# These archives are multi-year compilations (CLAUDE.md section 1.5), and a paper's
+# These archives are multi-year compilations (CLAUDE.md section 1.6), and a paper's
 # own answers are followed by the *previous* year's. 2023 runs out on page 6, whose
 # right column opens "2022 / Booklet A / 1. (2)"; without a stop the 2022 answers and
 # then a rotated "Allocation of questions by topic" grid — whose row labels OCR as
@@ -116,7 +116,7 @@ def drop_artefacts(lines: list[Line]) -> list[Line]:
     Deliberately narrow. A plain confidence floor cannot be used: most of the
     low-confidence lines in this corpus are real sub-part labels -- "(b)", "(c)",
     "(b) (i)" -- and dropping one silently merges its answer into the previous
-    sub-part, the worst failure this pipeline has (CLAUDE.md section 1.5).
+    sub-part, the worst failure this pipeline has (CLAUDE.md section 1.6).
 
     Requiring the box to also be far taller than a line of text targets rotated
     marginalia and bleed-through instead. Across all 14 papers this catches six
@@ -179,7 +179,7 @@ def split_columns(lines: list[Line], width: int) -> list[Line]:
     gutter = max(int(width * 0.35), min(int(width * 0.65), gutter))
     # Rows are merged per column: a marker in the left column and body text in the
     # right sit at the same height but are unrelated, and joining them across the
-    # gutter is the exact failure the tesseract pass had (CLAUDE.md section 1.5).
+    # gutter is the exact failure the tesseract pass had (CLAUDE.md section 1.6).
     left = merge_rows([l for l in lines if l.cx < gutter])
     right = merge_rows([l for l in lines if l.cx >= gutter])
     return sorted(left, key=lambda l: l.top) + sorted(right, key=lambda l: l.top)
@@ -359,7 +359,7 @@ def extract(work: Path, questions_root: Path = WORK_QUESTIONS) -> dict:
 
     # A sub-part label that OCR never emitted is the most dangerous failure here:
     # the label vanishes, its answer is appended to the previous sub-part, and the
-    # result looks perfectly well-formed (CLAUDE.md section 1.5). Nothing in the
+    # result looks perfectly well-formed (CLAUDE.md section 1.6). Nothing in the
     # text can reveal it, so it is caught by comparing against the sub-parts the
     # paper itself was indexed with.
     repairs: list[str] = []

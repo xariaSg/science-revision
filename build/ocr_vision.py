@@ -3,7 +3,7 @@
 Substantially better than tesseract on these scans, and still entirely local -- no
 API key, no network. On 2024 Q32(c) tesseract returns "predotors" for "predators"
 and clips the underlined "Explanation:" heading to "ion:", losing the field split
-that the marking model depends on (CLAUDE.md section 1.5). Vision reads the same
+that the marking model depends on (CLAUDE.md section 1.6). Vision reads the same
 crop cleanly, heading included.
 
 Returns lines with pixel bounding boxes, so the geometric segmentation built for
@@ -81,21 +81,30 @@ def recognise(path: Path, languages: tuple[str, ...] = ("en-US",)) -> list[Line]
     return lines
 
 
-def _cache_path(image_path: Path) -> Path:
-    return image_path.parent.parent / "ocr-vision" / f"{image_path.stem}.json"
+DEFAULT_LANGUAGES = ("en-US",)
 
 
-def page_lines(image_path: Path, refresh: bool = False) -> list[Line]:
+def _cache_path(image_path: Path, languages: tuple[str, ...]) -> Path:
+    # The English cache is unsuffixed so the Science bundle's existing caches stay
+    # valid; anything else is tagged, because the same page read in a different
+    # language is a different result.
+    tag = "" if languages == DEFAULT_LANGUAGES else "." + "-".join(languages)
+    return image_path.parent.parent / "ocr-vision" / f"{image_path.stem}{tag}.json"
+
+
+def page_lines(image_path: Path, refresh: bool = False,
+               languages: tuple[str, ...] = DEFAULT_LANGUAGES) -> list[Line]:
     """Recognise a page, caching the result next to the tesseract cache."""
-    cache = _cache_path(image_path)
+    cache = _cache_path(image_path, languages)
     if cache.exists() and not refresh:
         return [Line(**row) for row in json.loads(cache.read_text())]
-    lines = recognise(image_path)
+    lines = recognise(image_path, languages)
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps([line.__dict__ for line in lines], indent=1))
     return lines
 
 
 @lru_cache(maxsize=64)
-def page_text(image_path: Path, refresh: bool = False) -> str:
-    return "\n".join(line.text for line in page_lines(image_path, refresh))
+def page_text(image_path: Path, refresh: bool = False,
+              languages: tuple[str, ...] = DEFAULT_LANGUAGES) -> str:
+    return "\n".join(line.text for line in page_lines(image_path, refresh, languages))

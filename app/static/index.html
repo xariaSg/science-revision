@@ -3,43 +3,106 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Science practice</title>
+  <title>PSLE practice</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header>
-    <h1>Science practice</h1>
-    <div class="pickers">
-      <label>Paper <select id="year"></select></label>
-      <label>Question <select id="question"></select></label>
-    </div>
-    <div class="nav">
-      <button id="prev" type="button">‹ Previous</button>
-      <button id="next" type="button">Next ›</button>
+  <!-- Home: subject, then year, then (Science only) which booklet. -->
+  <div id="home" class="screen home">
+    <header class="home-head">
+      <h1 id="homeTitle">PSLE practice</h1>
+      <p id="homeHint"></p>
+    </header>
+    <button id="homeBack" class="back" type="button" hidden>‹ Back</button>
+    <div id="homeCards" class="cards"></div>
+    <footer class="home-foot">
       <a href="/progress" class="linkbtn">Progress</a>
-    </div>
-  </header>
+    </footer>
+  </div>
 
-  <main>
-    <section id="paper" aria-label="Question paper">
-      <div class="zoom">
-        <button data-zoom="out" type="button">−</button>
-        <span id="zoomLabel">Fit</span>
-        <button data-zoom="in" type="button">+</button>
+  <!-- Science: one question at a time, picked from the header. -->
+  <div id="practice" class="screen" hidden>
+    <header>
+      <h1><button id="sciHome" class="crumb" type="button">‹ Papers</button>
+        <span id="sciTitle">Science</span></h1>
+      <div class="pickers">
+        <label>Paper <select id="year"></select></label>
+        <div class="booklets" role="group" aria-label="Which booklet">
+          <button type="button" data-booklet="A">Booklet A<span> · multiple choice</span></button>
+          <button type="button" data-booklet="B">Booklet B<span> · written</span></button>
+        </div>
+        <label>Question <select id="question"></select></label>
       </div>
-      <div id="pages"></div>
-    </section>
+      <div class="nav">
+        <button id="prev" type="button">‹ Previous</button>
+        <button id="next" type="button">Next ›</button>
+        <a href="/progress" class="linkbtn">Progress</a>
+      </div>
+    </header>
 
-    <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
-         aria-label="Resize the question and answer panes"
-         title="Drag to resize · double-click to reset"></div>
+    <main>
+      <section id="paper" aria-label="Question paper">
+        <div class="zoom">
+          <button data-zoom="out" type="button">−</button>
+          <span id="zoomLabel">Fit</span>
+          <button data-zoom="in" type="button">+</button>
+        </div>
+        <div id="pages"></div>
+      </section>
 
-    <section id="answers" aria-label="Your answers">
-      <div id="answerHead"></div>
-      <div id="parts"></div>
-    </section>
-  </main>
+      <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
+           aria-label="Resize the question and answer panes"
+           title="Drag to resize · double-click to reset"></div>
 
+      <section id="answers" aria-label="Your answers">
+        <div id="answerHead"></div>
+        <div id="parts"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Chinese: the whole of Paper 2 at once. Two sections embed their questions
+       inside a passage, so the page is the unit of reading and the answer list
+       runs alongside it rather than replacing it. -->
+  <div id="cnPractice" class="screen" hidden>
+    <header>
+      <h1><button id="cnHome" class="crumb" type="button">‹ Papers</button>
+        <span id="cnTitle">华文</span></h1>
+      <div class="pickers">
+        <label>Go to <select id="cnJump"></select></label>
+      </div>
+      <div class="nav">
+        <span id="cnScore" class="score"></span>
+        <a href="/progress" class="linkbtn">Progress</a>
+      </div>
+    </header>
+
+    <main>
+      <section id="cnPaper" aria-label="Question paper">
+        <div class="zoom">
+          <button data-cnzoom="out" type="button">−</button>
+          <span id="cnZoomLabel">Fit</span>
+          <button data-cnzoom="in" type="button">+</button>
+        </div>
+        <div id="cnPages"></div>
+      </section>
+
+      <div id="cnSplitter" role="separator" aria-orientation="vertical" tabindex="0"
+           aria-label="Resize the paper and answer panes"
+           title="Drag to resize · double-click to reset"></div>
+
+      <section id="cnAnswers" aria-label="Your answers">
+        <div id="cnSummary" hidden></div>
+        <div id="cnList"></div>
+        <div id="cnFinishBar">
+          <button id="cnFinish" class="primary" type="button">Finish and see my marks</button>
+          <span id="cnProgress"></span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/chinese.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
