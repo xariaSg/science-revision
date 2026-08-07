@@ -116,6 +116,11 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
             allocation = verified.get(f"{question}{part['part'] or ''}")
             if allocation is None:
                 allocation = marks.get(key)
+            if allocation is None and part["part"] and "(" in part["part"]:
+                # The answers nest a sub-part the inventory left bare: 2022 Q31 is
+                # indexed "a" but answered as "a(i)". The allocation printed on the
+                # paper belongs to that same sub-part under its shorter name.
+                allocation = marks.get((question, part["part"].split("(")[0]))
             if allocation is None:
                 allocation = marks.get((question, None))
             rubrics.append({

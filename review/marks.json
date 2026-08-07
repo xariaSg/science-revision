@@ -7,6 +7,15 @@
     "a verified reading recorded only there would be lost on the next rebuild.",
     "Keys are question number + part label, e.g. '29a', '30b(i)'."
   ],
+  "2021": {
+    "32b": 1,
+    "40c": 1,
+    "40d": 1
+  },
+  "2023": {
+    "29a": 1,
+    "36c": 1
+  },
   "2024": {
     "29a": 2,
     "30a": 1,
