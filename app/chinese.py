@@ -1,12 +1,16 @@
 """Chinese Paper 2 API.
 
-Paper 2 is one booklet, so unlike Science there is no Booklet A/B choice to make
--- the whole paper loads at once and each question carries its own way of being
-answered:
+Unlike Science there is no Booklet A/B choice to make: 2012-2020 do print Paper 2
+as two booklets, but they are sat as one paper and are served that way, so the
+whole thing loads at once and each question carries its own way of being answered:
 
-  choose       Q1-Q32. Marked against the key. No API key, never fails.
-  typed        Q34-Q40. Marked against keypoints the publisher printed.
-  self_marked  Q33. Shown with its model answer; the student awards the mark.
+  choose       marked against the key. No API key, never fails.
+  typed        marked against keypoints the publisher printed.
+  self_marked  shown with its model answer; the student awards the mark.
+
+Which question is which is read from questions.json, never assumed from its
+number: 2021-2025 run Q1-Q32 chosen, Q34-Q40 typed and Q33 self-marked, but
+2012-2016 have 41 questions and no chosen ones past Q28 (CLAUDE.md section 7.5).
 
 The two constraints from the Science app hold here and are worth restating,
 because both are enforced by where the files sit rather than by a check:
@@ -28,14 +32,25 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from cn_grade import GradingUnavailable, grade
-from db import list_attempts, save_attempt
+from db import by_paper_and_day, list_attempts, save_attempt
 
 REPO = Path(__file__).resolve().parent.parent
 WORK_CN = REPO / "work-cn"
 
 SUBJECT = "chinese"
-# Paper 2 is a single booklet; the column exists for Science's A/B split.
+# The whole of Paper 2, however the year happened to bind it: 2021-2025 print one
+# booklet, 2012-2020 print two (A on the OAS, B written in the booklet). Either
+# way it is practised as one paper, so the column carries the paper number rather
+# than Science's A/B split.
 BOOKLET = "2"
+
+# The three response modes, said in a way a child can read. Kept here rather than
+# in the front end because the progress report groups by them.
+MODE_LABELS = {
+    "choose": "Chosen answers",
+    "typed": "Written answers",
+    "self_marked": "Self-marked",
+}
 
 router = APIRouter(prefix="/api/chinese", tags=["chinese"])
 
@@ -294,7 +309,7 @@ def score(year: int) -> dict:
     slots = {q["question"]: q["marks"] or 0 for q in data["questions"]}
 
     best: dict[int, int] = {}
-    for row in list_attempts(year=year, booklet=BOOKLET, subject=SUBJECT):
+    for row in _attempts(year):
         if row["marks"] is None:
             continue
         best[row["question"]] = max(best.get(row["question"], 0), int(row["marks"]))
@@ -306,4 +321,117 @@ def score(year: int) -> dict:
         "attempted": len(best),
         "slots": len(slots),
         "per_question": best,
+    }
+
+
+def _attempts(year: int | None) -> list[dict]:
+    """Every logged Chinese attempt, uncapped.
+
+    The paper is 40 questions, so `list_attempts`' default cap of 200 is two
+    sittings -- and it drops the oldest rows, which is where both the best
+    attempt at a question and the start of a trend live.
+    """
+    years = [year] if year is not None else indexed_years()
+    return [row for y in years
+            for row in list_attempts(year=y, booklet=BOOKLET, subject=SUBJECT,
+                                     limit=None)]
+
+
+@router.get("/papers/{year}/progress")
+def paper_progress(year: int) -> dict:
+    """Progress on one Chinese paper."""
+    return _progress(year)
+
+
+@router.get("/progress")
+def progress_all() -> dict:
+    """Progress across every Chinese paper."""
+    return _progress(None)
+
+
+def _progress(year: int | None) -> dict:
+    """Chinese progress: the chart, plus where in the paper the marks are lost.
+
+    Deliberately not the Science report with the names changed. There are no
+    chains to break, no facets to miss and no contextual gate to fail
+    (CLAUDE.md 7.6), so the weak-area rollup is by the paper's own five sections
+    -- which is the unit a Chinese teacher would name anyway -- and by how the
+    question is answered, because 语文应用's chosen answers and B组's written
+    ones are close to two different skills sharing a paper.
+    """
+    from collections import defaultdict
+
+    years = [year] if year is not None else indexed_years()
+    rows = _attempts(year)
+
+    # Which section and mode each question belongs to, across the years in view.
+    # Both are properties of the paper, so they are read from the index rather
+    # than logged with the attempt.
+    section_of: dict[tuple[int, int], str] = {}
+    mode_of: dict[tuple[int, int], str] = {}
+    slots = 0
+    for y in years:
+        for q in load_questions(y)["questions"]:
+            section_of[(y, q["question"])] = q["section"]
+            mode_of[(y, q["question"])] = q["response_mode"]
+            slots += 1
+
+    section_stat: dict[str, dict] = defaultdict(
+        lambda: {"earned": 0, "possible": 0, "attempts": 0})
+    mode_stat: dict[str, dict] = defaultdict(
+        lambda: {"earned": 0, "possible": 0, "attempts": 0})
+    best: dict[tuple[int, int], dict] = {}
+    # A typed answer from 2021-2022, or one logged while grading was unavailable:
+    # submitted, never marked, and waiting to be self-marked. Counted by question
+    # rather than by row -- three tries at one question is one thing to go back
+    # to, and a question that has since been self-marked is not waiting at all,
+    # even though its ungraded first attempt is still in the log.
+    awaiting: set[tuple[int, int]] = set()
+
+    for row in rows:
+        key = (row["year"], row["question"])
+        if row["marks"] is None:
+            awaiting.add(key)
+            continue
+        if key not in best or row["marks"] > best[key]["marks"]:
+            best[key] = row
+
+    awaiting -= best.keys()
+
+    # Best attempt only, for the same reason Science uses it: the report should say
+    # what she can do now, not hold the first try against her.
+    for key, row in best.items():
+        for stat, name in ((section_stat, section_of.get(key)),
+                           (mode_stat, MODE_LABELS.get(mode_of.get(key, "")))):
+            if not name:
+                continue
+            stat[name]["earned"] += row["marks"]
+            stat[name]["possible"] += row["marks_total"] or 0
+            stat[name]["attempts"] += 1
+
+    def ranked(stat: dict, order: list[str] | None = None) -> list[dict]:
+        out = [{"name": name, **v,
+                "percent": round(v["earned"] / v["possible"] * 100) if v["possible"] else 0}
+               for name, v in stat.items() if v["possible"]]
+        if order:  # sections read in the order the paper prints them
+            return sorted(out, key=lambda d: order.index(d["name"]))
+        return sorted(out, key=lambda d: (d["percent"], -d["possible"]))
+
+    printed_order = [s["section"] for y in years
+                     for s in load_questions(y)["sections"]]
+    seen: dict[str, None] = {}
+    for name in printed_order:
+        seen.setdefault(name, None)
+
+    return {
+        "subject": "chinese",
+        "years": sorted(years),
+        "papers": by_paper_and_day(rows),
+        "sections": ranked(section_stat, list(seen)),
+        "modes": ranked(mode_stat),
+        "slots": slots,
+        # Attempted but unmarked still counts as touched.
+        "untouched": slots - len(best.keys() | awaiting),
+        "unmarked": len(awaiting),
+        "total_attempts": len(rows),
     }

@@ -355,26 +355,80 @@ main.single { grid-template-columns: 1fr; }
 .focus.warn { background: var(--warn-soft); color: var(--warn); }
 .focus strong { display: block; margin-bottom: 2px; }
 
-.prow, .dayrow { display: grid; align-items: center; gap: 10px; padding: 4px 0; font-size: 13.5px; }
-.prow { grid-template-columns: minmax(140px, 1.3fr) minmax(80px, 2fr) 42px 70px; }
-.dayrow { grid-template-columns: 92px minmax(80px, 2fr) 42px 1fr; }
+.prow { display: grid; align-items: center; gap: 10px; padding: 4px 0; font-size: 13.5px;
+        grid-template-columns: minmax(140px, 1.3fr) minmax(80px, 2fr) 42px 70px; }
 .pname { color: var(--ink); }
-.dday { color: var(--muted); font-variant-numeric: tabular-nums; }
-.pbar, .dbar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
-.pfill, .dfill { height: 100%; border-radius: 999px; }
-.dfill { background: var(--accent); }
+.pbar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.pfill { height: 100%; border-radius: 999px; }
 .pfill.weak { background: #c0392b; }
 .pfill.mid { background: #d19a1a; }
 .pfill.strong { background: var(--good); }
-.ppct, .dpct { text-align: right; font-variant-numeric: tabular-nums; }
-.pmeta, .dmeta { color: var(--muted); font-size: 12.5px; }
+.ppct { text-align: right; font-variant-numeric: tabular-nums; }
+.pmeta { color: var(--muted); font-size: 12.5px; }
 
 .trend { font-size: 14px; margin: 0 0 8px; }
 .trend.up { color: var(--good); }
 .trend.down { color: var(--warn); }
 
-.untouched { display: flex; flex-wrap: wrap; gap: 6px; }
-.untouched span { font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; }
+/* Marks by paper. A column chart rather than the row of percentages this
+   replaced: the question it answers is "is it going up", and that is a shape the
+   eye reads off a left-to-right run of columns without reading any numbers.
+
+   Height is marks, so the bar is as tall as what was on offer that sitting and
+   the filled part is what was earned. Two papers on one day stand side by side
+   under one date, each labelled with its year. */
+/* --headroom leaves room above the tallest bar for its own value label. Without
+   it a full-height bar puts its number outside the plot, which scrolls rather
+   than overflowing, so the number simply disappears -- and it disappears on the
+   best result she has, which is the one worth seeing. */
+.chart { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px;
+         margin: 4px 0 6px; max-width: 900px; --plot: 190px; --headroom: 20px; }
+.caxis { display: flex; flex-direction: column; justify-content: space-between;
+         height: var(--plot); margin-top: var(--headroom); text-align: right;
+         font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.caxis span { transform: translateY(-0.5em); }
+
+.cplot { position: relative; min-width: 0; overflow-x: auto; padding-top: var(--headroom); }
+.cgrid { position: absolute; top: var(--headroom); left: 0; right: 0; height: var(--plot);
+         display: flex; flex-direction: column; justify-content: space-between; }
+.cgrid i { border-top: 1px solid var(--line); }
+.cgrid i:last-child { border-top-color: var(--muted); opacity: 0.5; }
+
+/* Groups share the width evenly, so two sittings sit far apart and a term's worth
+   pack in. Below min-width the plot scrolls rather than squeezing them illegible. */
+.cgroups { position: relative; display: flex; align-items: flex-end; }
+.cgroup { flex: 1 1 0; min-width: 52px; display: flex; flex-direction: column; }
+.cbars { display: flex; align-items: flex-end; justify-content: center; gap: 4px;
+         height: var(--plot); }
+
+.cbar { display: flex; flex-direction: column; justify-content: flex-end;
+        align-items: center; height: 100%; flex: 1 1 auto;
+        min-width: 22px; max-width: 54px; }
+/* Marks attempted: the full height of the column. */
+.ctrack { position: relative; width: 100%; min-height: 3px; background: var(--line);
+          border-radius: 5px 5px 0 0; display: flex; flex-direction: column;
+          justify-content: flex-end; }
+/* Marks earned, filling it from the bottom. */
+.cfill { width: 100%; border-radius: 5px 5px 0 0; transition: height 0.4s ease; }
+.cfill.weak { background: #c0392b; }
+.cfill.mid { background: #d19a1a; }
+.cfill.strong { background: var(--good); }
+.cval { position: absolute; top: -17px; left: 0; right: 0; text-align: center;
+        font-size: 11.5px; font-weight: 600; color: var(--ink);
+        font-variant-numeric: tabular-nums; }
+/* The paper the bar is for. Sits on the axis under its own column, so a date
+   with two papers still says which is which. */
+.cyear { font-size: 11px; color: var(--muted); padding-top: 5px;
+         font-variant-numeric: tabular-nums; }
+/* No rule of its own under the date: the axis is the last gridline, and a second
+   line per group breaks it into dashes. */
+.cdate { font-size: 12px; color: var(--ink); text-align: center; padding-top: 2px; }
+
+.chint { font-size: 12px; color: var(--muted); margin: 10px 0 0;
+         display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.key-fill, .key-track { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.key-fill { background: var(--good); }
+.key-track { background: var(--line); }
 
 /* ------------------------------------------------------- booklet A: the MCQs */
 

@@ -10,10 +10,10 @@ Two subjects, and they are less alike than they look:
 
 | | Science | Chinese |
 |---|---|---|
-| Papers | Booklet A (MCQ) and Booklet B (open-ended), practised separately | Paper 2, loaded whole |
+| Papers | Booklet A (MCQ) and Booklet B (open-ended), practised separately | Paper 2, loaded whole (both booklets where the year has two, §7.5) |
 | Answering | spoken, transcribed locally | typed and chosen — never spoken, see §7.6 |
 | Marking | chains of cause and effect, authored by hand (§3) | keypoints the publisher printed (§7.4) |
-| Years built | 2012–2025 | 2021–2025 |
+| Years built | 2012–2025 | 2012–2025 |
 
 **Sections 1–6 are Science. Section 7 is Chinese.** The numbering is load-bearing:
 code comments cite these sections by number, so nothing here may be renumbered.
@@ -451,10 +451,10 @@ becoming a wrong mark destroys the child's trust in the app on first contact.
 
 ## 7. Chinese Paper 2
 
-Built for **2021–2025**. Everything below was confirmed by direct inspection across
-those five papers unless marked otherwise. Where a claim holds for only some years,
-the years are named — the era differences in §7.5 are the whole reason this section
-is long.
+Built for **2012–2025**, all fourteen. Everything below was confirmed by direct
+inspection unless marked otherwise. Where a claim holds for only some years, the
+years are named — the era differences in §7.5 are the whole reason this section is
+long, and there are **three** eras, not two.
 
 ### 7.1 The source files
 
@@ -463,15 +463,38 @@ mixed-case extensions. But the compilation is **not** what is ingested.
 
 Each compilation holds four things — Paper 1 (作文, composition), Paper 2, Paper 3
 (听力, listening, *with its transcript printed*), and the answers for all three.
-Only Paper 2 and its answers are wanted, so the pipeline reads a pre-split pair:
+Only Paper 2 and its answers are wanted, so the pipeline reads a split pair:
 
 ```
-papers/chinese/Paper2/<year> PSLE Chinese Language.pdf     15–16 pages
-papers/chinese/Answer/<year> PSLE Chinese Language.pdf      5–7 pages
+papers/chinese/Compilation/<year> PSLE Chinese Language.pdf   38–57 pages
+papers/chinese/Paper2/<year> PSLE Chinese Language.pdf        15–24 pages
+papers/chinese/Answer/<year> PSLE Chinese Language.pdf         5–13 pages
 ```
 
-Splitting these is a manual step outside the repo. **2020 has a Paper 2 but no
-answer file and is therefore not built**; 2012–2019 are not split at all.
+**`build/cn_split.py` does the splitting, from the compilation's own footers.**
+It used to be a manual step outside the repo, and eight years of hand-split files
+disagreed with each other badly enough to be worth automating: 2017's Paper 2 held
+two pages (Booklet A's cover and Booklet B's last page), 2018's began at Booklet B
+with Booklet A missing entirely, and 2016's ran to 28. None of that is visible
+downstream — a short paper simply indexes fewer questions and still validates —
+which is exactly why it is derived rather than trusted.
+
+The anchor is the per-page paper code, Latin and therefore readable by the cheap
+English OCR pass even though the body is Chinese: `0005/1`, `0005/2(A)`,
+`0005/2(B)`, `0005/3`. Answers carry no code at all, and that is what identifies
+them — they are the pages after the last coded one. Each booklet cover states its
+own length and is used as a cross-check; unlike Science's Booklet A cover (§1.3)
+these agree on every year, counting the cover itself among the printed pages.
+
+Two traps, both hit: 2013 p17's code OCRs as `000512 (B)` with the slash gone, so
+covers are found by their English title (`CHINESE PAPER 2` / `BOOKLET B`) rather
+than by their code; and 2016 p23's reads `0005/2(В)/2016` with a **Cyrillic** Ve,
+which a plain `[AB]` misses and which silently splits the run in two.
+
+The 2021–2025 pairs were split by hand before this existed. `cn_split.py`
+reproduces them page for page on content, differing only by a trailing `BLANK
+PAGE` on 2024/2025 and two Paper 1 answer pages, so they are left alone; writing
+over an existing pair takes `--force`.
 
 - Pure scans, no usable text layer on any of them. Where the compilations *do*
   carry embedded text it is a **Latin-only OCR pass**: 2018 p20 comes back as
@@ -519,24 +542,41 @@ displayed instead — the same conclusion as §1.4, for a different reason.
 
 ### 7.3 Paper 2 structure
 
-40 questions, 90 marks, five sections, identical across all five years:
+90 marks and five sections in every year of the corpus. The **question count is
+not** constant: 2017–2025 have 40, and 2012–2016 have **41**.
 
-| § | Section | Questions | Marks | Answered on |
-|---|---|---|---|---|
-| 一 | 语文应用 | Q1–15 | 30 | OAS |
-| 二 | 短文填空 | Q16–20 | 10 | OAS |
-| 三 | 阅读理解一 | Q21–25 | 10 | OAS |
-| 四 | 完成对话 | Q26–29 | 8 | answer booklet |
-| 五 | 阅读理解二 A组 | Q30–33 | 10 | answer booklet |
-| 五 | 阅读理解二 B组 | Q34–40 | 22 | answer booklet |
+| § | Section | 2017–2025 | Marks | 2012–2016 | Marks | Answered on |
+|---|---|---|---|---|---|---|
+| 一 | 语文应用 | Q1–15 | 30 | Q1–10 | 20 | OAS |
+| 二 | 短文填空 | Q16–20 | 10 | Q11–16 | 12 | OAS |
+| 三 | 阅读理解一 | Q21–25 | 10 | Q17–23 | 14 | OAS |
+| 四 | 完成对话 | Q26–29 | 8 | Q24–28 | 10 | booklet / 作答簿 |
+| 五 | 阅读理解二 A组 | Q30–33 | 10 | Q29–34 | — | booklet / 作答簿 |
+| 五 | 阅读理解二 B组 | Q34–40 | 22 | Q35–41 | — | booklet / 作答簿 |
+
+2012–2016 state 13 questions and 34 marks for 阅读理解二 as a whole and leave the
+A/B split without totals of its own, which is why those two cells are empty here
+and `None` in `questions.json`. 2012–2016 also group 阅读理解一 into A组/B组; only
+2017 onward reserves grouping for 阅读理解二.
 
 **The paper states its own structure, and that is what makes the index checkable
 without a human reading it.** Section headers carry a count and a total
-(`语文应用（15题30分）`), the group headers carry their own
-(`B组（Q34-Q40，7题22分）`), and two range statements fix where the chosen answers
-stop and the written ones begin (`从第1题到第25题…电脑作答卷`,
+(`语文应用（15题30分）`), the group headers usually carry their own
+(`B组（Q34-Q40，7题22分）`), and on 2021–2025 two range statements fix where the
+chosen answers stop and the written ones begin (`从第1题到第25题…电脑作答卷`,
 `从第26题到第40题…写在作答簿`). `build/cn_index.py` validates what it found
 against all of these. Nothing is hardcoded per year.
+
+Where a statement is missing the structure still supplies it, and the substitute
+is a printed fact rather than an inference from what happened to be found:
+
+- **The OAS boundary** comes from Booklet B's cover on 2012–2020, which print no
+  range statements at all (Booklet B just says "Write all your answers in this
+  booklet", in English). Booklet A is the OAS half by construction.
+- **The last question number** comes from the A組/B組 headers' own stated end, or
+  from the section counts when every section states one. Taking it from the
+  highest number seen would move when a question was missed — the failure that
+  leaves no gap for anyone to notice (§1.6.1).
 
 **Four question layouts, and only the first is what you would expect:**
 
@@ -544,11 +584,16 @@ against all of these. Nothing is hardcoded per year.
    options beneath.
 2. **Inline cloze** — 短文填空. The number sits *mid-sentence* with its options
    beside it: `帮助大卫 Q16（1 控制 2 管理 3 阻拦 4 克服）了这个困难`.
-3. **Inline dialogue blanks** — 完成对话. Q26–Q29 are blanks inside a conversation,
-   answered from a shared bank of numbered phrases printed above it. **The bank
-   holds eight, not four**, which is why `options` is read off the page rather
-   than assumed; 2025's key has `Q27 (6)` and `Q28 (8)`.
-4. **Written** — Q33 and B组.
+3. **Inline dialogue blanks** — 完成对话. Blanks inside a conversation, answered
+   from a shared bank of numbered phrases printed above it. **The bank holds
+   eight, not four**, in all fourteen years, which is why `options` is read off
+   the page rather than assumed; 2025's key has `Q27 (6)` and `Q28 (8)`.
+   The bank is numbered three different ways — bare on 2017–2025
+   (`1 我们都很开心`), parenthesised on 2012 (`（1）你放心好了`), dotted on
+   2013–2016 (`1. 太没有爱心了`, and without even a space in
+   `7.巴士在繁忙时间挤满了搭客`). Its size is its highest entry **only when
+   everything below that was also read**; one stray number would otherwise set it.
+4. **Written** — Q33 and B组 on 2017–2025; the whole of 阅读理解二 on 2012–2016.
 
 Anchoring question numbers to the left margin finds only layout 1 and silently
 loses ten questions, so they are matched anywhere on a line. The cost is that
@@ -607,22 +652,55 @@ Three traps, all hit:
 
 ### 7.5 Era differences
 
-The 2024/2025 assumptions did not survive contact with 2021–2023. Every one of
-these failed **silently**:
+There are **three eras**, and the boundary that matters most is not the one you
+would guess from the dates:
 
+| | 2012–2016 | 2017–2020 | 2021–2025 |
+|---|---|---|---|
+| Physical form | two booklets, A + B | two booklets, A + B | one booklet |
+| Questions | 41 | 40 | 40 |
+| Written answers go | in Booklet B | in Booklet B | in a separate 作答簿 |
+| Range statements | OAS only | neither | both |
+| 阅读理解二 A组 | written | 3 chosen + 1 written | 3 chosen + 1 written |
+| Mark markers in the key | none | none | 2023 on |
+| Paper 2 pages | 20 | 24 | 15–16 |
+
+The 2024/2025 assumptions did not survive contact with 2021–2023, and the
+2021–2025 assumptions did not survive contact with 2012–2020. Every one of these
+failed **silently**:
+
+0. **2012–2020 bind Paper 2 as two physical booklets** — `0005/2(A)`, answered on
+   the OAS, and `0005/2(B)`, written in the booklet itself. Covers, blank pages
+   and a closing copyright page sit inside each, so the built paper is 20 or 24
+   pages against 2021–2025's 15–16. Neither booklet prints the 电脑作答卷 /
+   写在作答簿 sentences, so the OAS boundary comes from Booklet B's cover (§7.3).
 1. **2021–2023 print the 阅读理解二 header bare** — `五阅读理解二`, with no
    `（11题32分）` after it. Only 2024–2025 state the parent total; the earlier
    papers leave it to the A组/B组 sub-headers. Requiring a name *and* a count
    meant the section never opened, and 完成对话 quietly absorbed the remaining
-   fifteen questions. A bare name now starts a section; a length guard keeps a
-   passage that happens to mention one from doing so.
-2. **Mark markers exist only from 2023.** 2021 and 2022 model answers are complete
-   prose with no `（1）` anywhere. Their written questions therefore **cannot** be
-   auto-marked and fall through to self-marking against the model answer. *No*
-   markers is that era; *some* markers that do not total correctly is a bad read
-   and is still a hard failure. Do not paper over the difference by splitting the
-   prose on sentence boundaries — that is exactly the trap §3 documents, and a
-   wrong rubric teaches a child wrong Chinese with full confidence.
+   fifteen questions.
+
+   The same section then failed twice more, differently. **2017 states A組's range
+   and totals on the parent header** — `五 阅读理解二（Q30-Q33，4题10分）`
+   describes four of the section's eleven questions, so taking it as the section's
+   own count fails validation against a paper that is not wrong; a header naming a
+   range is now read as describing that range. And that header is 22 characters,
+   just over a length guard that had only ever seen the bare form. What marks a
+   line as a header is that it states the section's *shape* — a count and total,
+   or the range it covers — with geometry deciding only when it states neither.
+
+   **2017 also loses the first character of the name**: Vision reads
+   `五 阔读理解二`, 阅 as 阔. Section names are matched on the stem (`读理解二`)
+   for that reason; the stems stay distinct from each other and from everything
+   else on the page.
+2. **Mark markers exist only from 2023.** Every model answer from 2012 to 2022 is
+   complete prose with no `（1）` anywhere. Those years' written questions
+   therefore **cannot** be auto-marked and fall through to self-marking against
+   the model answer. *No* markers is that era; *some* markers that do not total
+   correctly is a bad read and is still a hard failure. Do not paper over the
+   difference by splitting the prose on sentence boundaries — that is exactly the
+   trap §3 documents, and a wrong rubric teaches a child wrong Chinese with full
+   confidence.
 3. **Option brackets are unreliable.** 2021 drops them entirely (`Q1 ②`, a bare
    circled numeral); 2024 emits both forms at once (`Q7 （②2）`); 2021–2023 run
    the option together with the next column (`Q16（4） |实现`,
@@ -634,12 +712,29 @@ these failed **silently**:
    sequence for anyone to notice. Question numbers are now confirmed against the
    paper's own question set, longest plausible prefix winning, and the leftover
    digits fall through to the option — the same discipline as §1.5.1, applied to
-   the key.
+   the key. 2013's Q29 fails the same way from the other end — its `Q` reads as a
+   `9`, giving `929` at confidence 0.30 — and is recovered only because the
+   sequence had already fixed which number was missing.
+5. **The key's left margin is not a constant.** Question numbers sit at 183px on
+   2025 and at 619px on 2017, at the same 300 dpi. An absolute cut-off tuned to
+   the newer papers dropped two thirds of 2017's key and the whole of its Booklet
+   B — and, being a *missing* entry rather than a wrong one, it showed up only as
+   a coverage failure. The margin is measured per page now, capped at a third of
+   the page width so a page whose only `Q…` is mid-text cannot define its own.
 
-The last two are the dangerous ones, for §1.6.1's reason: **a misread option is
+Items 3 and 4 are the dangerous ones, for §1.6.1's reason: **a misread option is
 worse than any other failure here.** There is no partial credit to soften it — the
 child is simply told they were wrong when they were right. Both the extractor and
 the index refuse rather than guess, and every refusal is reported.
+
+**What separates a chosen question from a written one is measured, not assumed.**
+Past the OAS boundary the eras diverge — 2017–2025 print three more option
+questions (阅读理解二 A组 Q30–Q32), 2012–2016 print none, their whole 阅读理解二
+being ruled answer lines and a 得分 box. Counting the option markers under each
+question splits them cleanly: those three come back with exactly `{1,2,3,4}` and
+every written question with nothing at all, in all fourteen years. Inferring it
+from the group headers instead would have worked by coincidence and broken the
+first time a header changed shape.
 
 ### 7.6 Marking model — how Chinese differs from §3
 
@@ -694,31 +789,99 @@ stray refresh — and the marks arrive once, at the end.
 ### 7.7 Build order and coverage
 
 ```bash
-build/cn_unpack.py   # PDFs      -> work-cn/<year>/pages, answer-pages
-build/cn_index.py    # pages     -> questions.json   (validates against the paper)
-build/cn_key.py      # answers   -> key.json         (validates against questions.json)
-build/cn_rubric.py   # key       -> rubrics.json     (refuses what does not total)
+build/cn_split.py    # compilation -> Paper2/, Answer/    (--dry-run to inspect)
+build/cn_unpack.py   # PDFs        -> work-cn/<year>/pages, answer-pages
+build/cn_index.py    # pages       -> questions.json   (validates against the paper)
+build/cn_key.py      # answers     -> key.json         (validates against questions.json)
+build/cn_rubric.py   # key         -> rubrics.json     (refuses what does not total)
 ```
 
 `cn_key.py` must run after `cn_index.py`: it needs the paper's question set to
-resolve damaged numbers (§7.5 item 4), exactly as `extract_mcq_key.py` needs
+resolve damaged numbers (§7.5 items 4), exactly as `extract_mcq_key.py` needs
 `index_mcq.py` in §1.6.1.
+
+All fourteen years index and key with **no problems reported** — every section
+count, group total and mark sum agrees with what the paper states about itself,
+and every year totals 90 marks.
 
 | Year | chosen | auto-marked written | self-marked |
 |---|---|---|---|
+| 2012–2016 | 28q / 56m | — | 13q / 34m |
+| 2017–2020 | 32q / 64m | — | 8q / 26m |
 | 2021 | 32q / 64m | — | 8q / 26m |
 | 2022 | 32q / 64m | — | 8q / 26m |
 | 2023–2025 | 32q / 64m | 7q / 22m | 1q / 4m |
 
+Options were checked against the scans by eye for 2012, 2017 and 2020 — 67
+questions, all correct, including bank answers above 4 (`Q27 (8)`) and pages whose
+注解 text is full of `（2）`-shaped references that are *not* the answer. No year
+produced a refused option read.
+
 ### 7.8 Not built
 
-- **2020** — Paper 2 exists, no answer key. **2012–2019** — not split out of the
-  compilations.
+- **Table-shaped model answers** — 2012 Q31, 2014 Q32, 2016 Q32, three in the
+  whole corpus. Rows are read left to right, which is right for prose and wrong
+  for a table: the left cell's words end up threaded through the right cell's
+  (`父亲有奇（a） 儿子的反应怪的举动感到丢脸…`). Three questions do not justify
+  reconstructing table geometry and all three are self-marked anyway, so the key
+  flags them `table_layout` and says to read the answer off the scan instead.
+- **Pinyin in the glosses** is dropped, not fixed (§7.2). A dictionary lookup keyed
+  on the characters would restore it.
 - **Paper 1 (作文)** and **Paper 3 (听力)**. Paper 3 is the interesting one: the
   compilations print its full transcript, so it could be spoken aloud by TTS
   rather than needing the original audio.
 - **The oral exam (口试)** — the natural home for a voice app in Chinese, and
   absent from these files entirely.
-- **Progress and review pages** are Science-only. Chinese attempts are logged with
-  a `subject` column but do not appear there yet.
+- **The review page** is Science-only. Progress is not — see §8.
 - **Grader consistency (§6.3) is unmeasured for Chinese**, as it is for Science.
+
+---
+
+## 8. The progress report
+
+Covers both subjects, which is why it is here rather than inside §1–6 or §7.
+It is a parent's view, and it answers three questions: is she improving, what is
+she weakest at, and how much is left.
+
+**One subject at a time, never both at once.** `/api/progress` is Science and
+`/api/chinese/progress` is Chinese; the front end has a subject picker and the
+year picker is scoped to it. A single endpoint taking `?subject=` was the obvious
+design and it is wrong, because the two reports share only the attempt log and
+the chart. A Science weakness is a syllabus topic and a broken link in a chain; a
+Chinese one is a section of the paper. Averaging them produces a number that
+describes neither, and a union schema would have half its fields null on every
+request.
+
+### 8.1 The chart
+
+One bar per paper per day: x is the date, y is marks, and each bar is labelled
+with the paper it came from. Two things about it were decided rather than fallen
+into:
+
+- **The rollup keeps the paper, not just the day.** `db.by_paper_and_day()`
+  exists for this. Collapsing to the date alone is the natural rollup and it
+  destroys the only thing the bar is labelled with — a morning on 2022 and an
+  afternoon on 2024 are two results, not one average.
+- **Bar height is the marks that were on offer in that sitting, and the fill is
+  what was earned.** Plotting earned marks alone makes a three-question warm-up
+  look like a collapse next to a full paper; plotting percentage alone makes one
+  lucky question a full-height bar. Both readings are visible at once this way.
+
+Science's bar counts **both booklets** — a Booklet A morning is marks on that
+paper. The topic, theme, facet and gate rollups underneath it stay Booklet B
+only, because they are keyed to its rubrics and the MCQ log has none of them.
+
+### 8.2 Coverage is a count, not a list
+
+The report used to name every untouched sub-part as a row of question-number
+chips. It is gone. It said nothing the count does not, it grew without bound as
+papers were backfilled, and a wall of numbers reads as a list of failures rather
+than of work remaining.
+
+### 8.3 `list_attempts` caps at 200 rows, and the report must opt out
+
+The cap is right for "show me recent attempts" and silently wrong here: rows come
+back newest first, so a truncated read drops the **oldest** days — the left-hand
+end of the trend and the half of the comparison that shows improvement. A Chinese
+paper is 40 questions, so two sittings of one year already reach it. Every
+progress and score query passes `limit=None`.

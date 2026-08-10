@@ -49,6 +49,13 @@ SECTION_NAME = re.compile(
     r"(语文应用|短文填空|阅读理解一|完成对话|阅读理解二|听力测验)")
 
 ANCHOR = re.compile(r"^Q\s*(\d+)")
+# The same row with its "Q" misrecognised. 2013's Q29 comes back as "929" at
+# confidence 0.30, and the answer to the first question of 阅读理解二 disappears
+# from the key. Used only to CONFIRM a number the sequence has already fixed --
+# it must be the very next question, one the paper says exists, and not yet
+# seen -- never to discover one. Read the other way round it would turn any
+# left-margin number into a question (CLAUDE.md sections 1.5.1 and 7.5).
+DAMAGED_ANCHOR = re.compile(r"^([9OoDQ0])\s*(\d+)")
 # Everything after the question number on its own row.
 ENTRY = re.compile(r"^Q\s*(\d+)\s*(.*)$")
 # Vision sometimes reads the key's plain "(2)" as a circled numeral. On 2024 it
@@ -105,7 +112,21 @@ MARKER = re.compile(r"[（(]\s*(\d+(?:\.\d+)?)\s*[）)]")
 NOTE = re.compile(r"^[（(]\s*[注註]解")
 MARK_SCHEME = re.compile(r"[（(]\s*评分标准\s*[：:]\s*(.+?)[）)]")
 FREE_RESPONSE = re.compile(r"[（(]\s*答案合理即可\s*[）)]")
+# A model answer printed as a table rather than prose -- 2012 Q31, 2014 Q32 and
+# 2016 Q32, three in the whole corpus. Rows are read left to right, which is
+# right for text and wrong here: the left cell's words end up threaded through
+# the right cell's ("父亲有奇（a） 儿子的反应怪的举动感到丢脸…"). Three questions
+# do not justify reconstructing table geometry, and all three are self-marked
+# anyway, but a child comparing their answer against a scrambled one should be
+# told to read it off the scan instead.
+SUB_LABEL = re.compile(r"[（(]\s*[abc]\s*[）)]")
 FOOTER = re.compile(r"Educational Publishing|历届会考|歷屆會考|參考答案|参考答案")
+# Column and group headings, which belong to the section that follows rather than
+# to the answer above them. Without this the last entry of every section trails
+# the next one's headings -- 2012 Q16 ends "忘记：不记得。forgetA组注解/说明" --
+# on all fourteen years. Matched only as a whole line, so the "（注解：…）" that
+# opens a real note is untouched.
+HEADING = re.compile(r"^(?:[注註]解\s*[/／]\s*[说說]明|[AB]\s*[组組])$")
 
 # The vocabulary glosses on the MCQ sections read "锻炼 duàn liàn：通过身体活动…
 # to exercise". The characters and the English survive OCR; the pinyin does not.
@@ -119,7 +140,27 @@ FOOTER = re.compile(r"Educational Publishing|历届会考|歷屆會考|參考答
 # "锻炼duan Idn：" and a \s lookbehind would strip only the second syllable.
 PINYIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9\s]*(?=[：:])")
 
-ANCHOR_MAX_LEFT = 520
+# A question number sits at the left margin of the single column; a "Q33" inside
+# a model answer or a 注解 does not. Separating them by an absolute pixel limit
+# only worked because every year it had been run on shared a margin: at 300 dpi
+# the anchors sit at 183 on 2025 and at 619 on 2017, so a limit tuned to the
+# newer papers silently dropped two thirds of 2017's key and the whole of its
+# Booklet B. The margin is measured per page instead -- the leftmost anchor on
+# the page, plus a tolerance for the wobble between one row and the next.
+#
+# The cap is what keeps a page whose only anchor is mid-text from defining its
+# own margin. Every real margin in the corpus is under a quarter of the page
+# width and every mid-text reference is past half of it, so a third separates
+# them with room to spare either way.
+ANCHOR_TOLERANCE = 60
+ANCHOR_MAX_FRACTION = 0.33
+
+
+def anchor_margin(lines, width: int) -> float | None:
+    """The left margin of this page's question numbers, or None if it has none."""
+    lefts = [ln.left for ln in lines
+             if ANCHOR.match(ln.text.strip()) and ln.left < width * ANCHOR_MAX_FRACTION]
+    return min(lefts) + ANCHOR_TOLERANCE if lefts else None
 
 
 def strip_pinyin(text: str) -> str:
@@ -147,8 +188,11 @@ def answer_pages(year: int, work_dir: Path = WORK_DIR):
     pages_dir = work_dir / str(year) / "answer-pages"
     if not pages_dir.exists():
         raise SystemExit(f"no unpacked answers for {year}; run build/cn_unpack.py")
+    manifest = json.loads((work_dir / str(year) / "manifest.json").read_text())
+    widths = {p["page_number"]: p["width"] for p in manifest["answers"]["pages"]}
     for image in sorted(pages_dir.glob("answer-*.png")):
-        yield int(image.stem.split("-")[1]), page_lines(image, languages=LANGUAGES)
+        number = int(image.stem.split("-")[1])
+        yield number, page_lines(image, languages=LANGUAGES), widths[number]
 
 
 def parse_key(year: int, work_dir: Path = WORK_DIR,
@@ -157,14 +201,31 @@ def parse_key(year: int, work_dir: Path = WORK_DIR,
     booklet = "paper2"
     section = None
     current = None
+    repairs: list[str] = []
+    last_seen: dict[str, int] = {}
 
-    for page, lines in answer_pages(year, work_dir):
+    for page, lines, width in answer_pages(year, work_dir):
+        margin = anchor_margin(lines, width)
         for row in rows(lines):
+            at_margin = [ln for ln in row
+                         if margin is not None and ln.left <= margin]
             anchor_line = next(
-                (ln for ln in row
-                 if ANCHOR.match(ln.text.strip()) and ln.left < ANCHOR_MAX_LEFT),
-                None,
-            )
+                (ln for ln in at_margin if ANCHOR.match(ln.text.strip())), None)
+            anchor_text = anchor_line.text.strip() if anchor_line else ""
+
+            if anchor_line is None and booklet == "paper2" and expected:
+                wanted = last_seen.get(booklet, 0) + 1
+                for ln in at_margin:
+                    m = DAMAGED_ANCHOR.match(ln.text.strip())
+                    if (m and m.group(1) != "Q" and int(m.group(2)) == wanted
+                            and wanted in expected
+                            and (booklet, wanted) not in entries):
+                        anchor_line = ln
+                        anchor_text = "Q" + ln.text.strip()[len(m.group(1)):]
+                        repairs.append(
+                            f"Q{wanted}: read from '{ln.text.strip()}' on "
+                            f"answer p{page}; the next question in sequence")
+                        break
 
             for line in row:
                 text = line.text.strip()
@@ -174,11 +235,11 @@ def parse_key(year: int, work_dir: Path = WORK_DIR,
                     section = m.group(1)
 
             if anchor_line is not None:
-                text = anchor_line.text.strip()
                 # Only Paper 2's numbering is known; Paper 3 restarts and is not
                 # served by the app, so it is read as-is.
                 number, rest = number_of(
-                    text, expected if booklet == "paper2" else None)
+                    anchor_text, expected if booklet == "paper2" else None)
+                last_seen[booklet] = number
                 option, option_raw = option_of(rest)
                 current = entries.setdefault(
                     (booklet, number),
@@ -197,7 +258,8 @@ def parse_key(year: int, work_dir: Path = WORK_DIR,
                     if current["option"] is not None or not text:
                         continue
                 elif (BOOKLET_BANNER.search(text) or SECTION_NAME.search(text)
-                        or FOOTER.search(text) or text.isdigit()):
+                        or FOOTER.search(text) or HEADING.match(text)
+                        or text.isdigit()):
                     continue
                 if NOTE.match(text) or current["notes"]:
                     current["notes"].append(text)
@@ -226,11 +288,12 @@ def parse_key(year: int, work_dir: Path = WORK_DIR,
             "marker_total": round(sum(markers), 2),
             "free_response": bool(FREE_RESPONSE.search(body + notes)),
             "mark_scheme": scheme.group(1) if scheme else None,
+            "table_layout": entry["option"] is None and bool(SUB_LABEL.search(body)),
         })
     out.sort(key=lambda e: (e["booklet"], e["question"]))
     return {"year": year, "subject": "chinese",
             "source": "EPH suggested answer", "authoritative": False,
-            "ocr": "macos-vision", "entries": out}
+            "ocr": "macos-vision", "repairs": repairs, "entries": out}
 
 
 def validate(key: dict, paper: dict) -> list[str]:
@@ -248,6 +311,12 @@ def validate(key: dict, paper: dict) -> list[str]:
     missing = [n for n in questions if n not in by_number]
     if missing:
         problems.append(f"no key entry for Q{missing}")
+
+    for number, entry in sorted(by_number.items()):
+        if entry.get("table_layout"):
+            key.setdefault("notes", []).append(
+                f"Q{number}: the model answer is printed as a table and does not "
+                f"read in order; compare against the scan")
 
     for number, question in sorted(questions.items()):
         entry = by_number.get(number)
@@ -323,6 +392,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{year}: {len(chosen)} chosen, {len(written)} written "
               f"(Q{min(e['question'] for e in written)}-"
               f"Q{max(e['question'] for e in written)})")
+        for line in key.get("repairs", []):
+            print(f"   repair: {line}")
+        for line in key.get("notes", []):
+            print(f"   note: {line}")
         for line in key["problems"]:
             print(f"   ! {line}")
             failed = True

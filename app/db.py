@@ -115,12 +115,20 @@ def save_attempt(payload: dict) -> dict:
 
 def list_attempts(year: int | None = None, question: int | None = None,
                   booklet: str | None = None,
-                  subject: str = "science") -> list[dict]:
-    """Attempts for one subject.
+                  subject: str = "science",
+                  limit: int | None = 200) -> list[dict]:
+    """Attempts for one subject, newest first.
 
     `subject` is not optional-by-default the way the other filters are: Science
     Q1 and Chinese Q1 are different questions, so a caller that forgets it would
     silently mix two papers' marks into one score.
+
+    `limit=None` returns every row. The cap is a sensible default for "show me
+    recent attempts" and the wrong thing entirely for the progress report: rows
+    come back newest first, so a truncated read drops the *oldest* days -- the
+    left-hand end of the trend chart, and the half of the comparison that shows
+    improvement. A Chinese paper is 40 questions, so two sittings of one year
+    already reach the default.
     """
     clauses, params = ["subject = ?"], [subject]
     if year is not None:
@@ -133,8 +141,38 @@ def list_attempts(year: int | None = None, question: int | None = None,
         clauses.append("booklet = ?")
         params.append(booklet)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = f"SELECT * FROM attempts{where} ORDER BY id DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
     with connect() as conn:
-        rows = conn.execute(
-            f"SELECT * FROM attempts{where} ORDER BY id DESC LIMIT 200", params
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return [dict(row) for row in rows]
+
+
+def by_paper_and_day(rows: list[dict]) -> list[dict]:
+    """Roll marked attempts up into one entry per paper per day.
+
+    The unit the progress chart plots. Collapsing to the day alone would be the
+    obvious rollup and it loses the one thing the chart is labelled with -- which
+    paper the marks came from. A morning on the 2022 paper and an afternoon on
+    2024 are two results, not one average.
+
+    `possible` is the marks of what was actually attempted, not the paper's full
+    total, so a two-question sitting is not reported as a near-zero score.
+    """
+    from collections import defaultdict
+
+    buckets: dict[tuple[str, int], dict] = defaultdict(
+        lambda: {"earned": 0, "possible": 0, "attempts": 0})
+    for row in rows:
+        if row["marks"] is None:
+            continue
+        key = ((row["created_at"] or "")[:10], row["year"])
+        bucket = buckets[key]
+        bucket["earned"] += row["marks"]
+        bucket["possible"] += row["marks_total"] or 0
+        bucket["attempts"] += 1
+    return [{"date": date, "year": year, **v,
+             "percent": round(v["earned"] / v["possible"] * 100) if v["possible"] else 0}
+            for (date, year), v in sorted(buckets.items())]

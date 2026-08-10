@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "build"))
 
 from ocr_vision import Line  # noqa: E402
 from cn_key import (  # noqa: E402
-    ANCHOR, FREE_RESPONSE, MARK_SCHEME, MARKER, NOTE, number_of, option_of,
-    rows, validate,
+    ANCHOR, DAMAGED_ANCHOR, FREE_RESPONSE, HEADING, MARK_SCHEME, MARKER, NOTE,
+    anchor_margin, number_of, option_of, rows, validate,
 )
 
 
@@ -154,6 +154,55 @@ def test_rows_are_ordered_left_to_right_within_a_band():
 def test_lines_far_apart_are_not_banded_together():
     banded = rows([line("Q1", top=100), line("Q2", top=900)])
     assert len(banded) == 2
+
+
+# -------------------------------------------------------------- finding the anchors
+
+def test_the_margin_is_measured_per_page():
+    """Question numbers sit at 183px on 2025 and 619px on 2017, at the same 300
+    dpi. A cut-off tuned to one era dropped two thirds of 2017's key -- and
+    because that is a *missing* entry rather than a wrong one, it surfaced only
+    as a coverage failure."""
+    page = [line("Q34 一言不发", left=614), line("Q35 满不在乎", left=619)]
+    margin = anchor_margin(page, width=2484)
+    assert margin >= 614
+    assert all(ln.left <= margin for ln in page)
+
+
+def test_a_reference_inside_an_answer_does_not_move_the_margin():
+    """"Q33" mid-paragraph is a reference, not a row of its own."""
+    page = [line("Q30 文章第一段交代了…", left=487),
+            line("Q33 请看上文", left=1580)]
+    margin = anchor_margin(page, width=2484)
+    assert page[0].left <= margin < page[1].left
+
+
+def test_a_page_whose_only_anchor_is_mid_text_defines_no_margin():
+    """Otherwise a stray reference would appoint itself the margin and become a
+    question. Every real margin in the corpus is under a quarter of the page
+    width; every mid-text reference is past half of it."""
+    assert anchor_margin([line("Q33 请看上文", left=1580)], width=2484) is None
+
+
+def test_a_damaged_anchor_is_recognised_but_only_as_a_candidate():
+    """2013's Q29 comes back as "929" at confidence 0.30 -- the Q read as a 9.
+    The pattern only proposes; the caller requires the number to be the next one
+    in sequence and one the paper says exists."""
+    match = DAMAGED_ANCHOR.match("929")
+    assert (match.group(1), match.group(2)) == ("9", "29")
+    # An intact row is left to the strict anchor, not treated as damage.
+    assert DAMAGED_ANCHOR.match("Q29 因为父亲年纪大了").group(1) == "Q"
+
+
+def test_column_headings_are_not_part_of_the_answer_above_them():
+    """The last entry of every section used to trail the next one's headings --
+    2012 Q16 ended "忘记：不记得。forgetA组注解/说明" -- on all fourteen years."""
+    assert HEADING.match("注解/说明")
+    assert HEADING.match("A组")
+    assert HEADING.match("B組")
+    # The bracketed 注解 that opens a real note is untouched.
+    assert HEADING.match("（注解：见第二段第三句）") is None
+    assert NOTE.match("（注解：见第二段第三句）")
 
 
 # ------------------------------------------------------------------------- validation

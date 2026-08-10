@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import chinese
-from db import init_db, list_attempts, save_attempt
+from db import by_paper_and_day, init_db, list_attempts, save_attempt
 from grade import GradingUnavailable, grade
 from stt import transcribe_bytes, model_name
 
@@ -429,13 +429,20 @@ def paper_score(year: int) -> dict:
 
 @app.get("/api/papers/{year}/progress")
 def paper_progress(year: int) -> dict:
-    """Progress on one paper: marks over time, weak topics, what is untouched."""
+    """Progress on one Science paper: marks over time, weak topics, coverage."""
     return _progress(year)
 
 
 @app.get("/api/progress")
 def progress_all() -> dict:
-    """Progress across every paper."""
+    """Progress across every Science paper.
+
+    Chinese has its own report at /api/chinese/progress rather than a `subject`
+    parameter here. The two subjects share only the attempt log and the chart --
+    everything else in a Science report (chains, facets, the contextual gate) is
+    an idea Chinese marking does not have (CLAUDE.md 7.6), so one endpoint
+    serving both would be a union of two shapes with half its fields always null.
+    """
     return _progress(None)
 
 
@@ -453,11 +460,15 @@ def _progress(year: int | None) -> dict:
         for r in json.loads(path.read_text())["rubrics"]:
             meta[(y, r["question"], r["part"])] = r
 
-    # Booklet B only: everything below is keyed to its rubrics, and the MCQ log has
-    # no chains, facets or topics to roll up.
-    rows = [row for y in years for row in list_attempts(year=y, booklet="B")]
+    # Two reads of the log, because the report has two halves and they do not want
+    # the same rows. The chart is about the paper, so it counts both booklets -- a
+    # Booklet A morning is marks earned on that paper and belongs on the bar. The
+    # rollups below are keyed to Booklet B's rubrics, and the MCQ log has no chains,
+    # facets or topics in it to roll up.
+    all_rows = [row for y in years
+                for row in list_attempts(year=y, limit=None)]
+    rows = [row for row in all_rows if row["booklet"] == "B"]
 
-    by_day: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
     topic_stat: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
     theme_stat: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
     facet_stat: dict[str, dict] = defaultdict(lambda: {"hit": 0, "missed": 0})
@@ -467,10 +478,6 @@ def _progress(year: int | None) -> dict:
     for row in rows:
         if row["marks"] is None:
             continue
-        day = (row["created_at"] or "")[:10]
-        by_day[day]["earned"] += row["marks"]
-        by_day[day]["possible"] += row["marks_total"] or 0
-        by_day[day]["attempts"] += 1
         if row["gate_passed"] == 0:
             gate_fails += 1
 
@@ -504,20 +511,22 @@ def _progress(year: int | None) -> dict:
                for name, v in stat.items() if v["possible"]]
         return sorted(out, key=lambda d: (d["percent"], -d["possible"]))
 
-    never: list[dict] = []
+    # Coverage is a count, not a list. Naming every untouched sub-part turned the
+    # bottom of the report into a wall of question numbers that says nothing a
+    # number does not -- and reads as a list of failures rather than of work left.
+    slots = untouched = 0
     for y in years:
-        data = load_questions(y)
-        for q in data["questions"]:
+        for q in load_questions(y)["questions"]:
             for part in q["parts"]:
                 if part.get("is_parent"):
                     continue
-                if (y, q["question"], part["part"]) not in best:
-                    never.append({"year": y, "question": q["question"],
-                                  "part": part["part"], "marks": part["marks"]})
+                slots += 1
+                untouched += (y, q["question"], part["part"]) not in best
 
     return {
+        "subject": "science",
         "years": sorted(years),
-        "by_day": [{"date": d, **v} for d, v in sorted(by_day.items())],
+        "papers": by_paper_and_day(all_rows),
         "topics": ranked(topic_stat),
         "themes": ranked(theme_stat),
         "facets": [{"name": f, **v,
@@ -525,8 +534,9 @@ def _progress(year: int | None) -> dict:
                                if (v["hit"] + v["missed"]) else 0}
                    for f, v in sorted(facet_stat.items())],
         "gate_failures": gate_fails,
-        "never_attempted": never,
-        "total_attempts": len(rows),
+        "slots": slots,
+        "untouched": untouched,
+        "total_attempts": len(all_rows),
     }
 
 

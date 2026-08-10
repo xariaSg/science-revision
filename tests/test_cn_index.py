@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "build"))
 
 from ocr_vision import Line  # noqa: E402
 from cn_index import (  # noqa: E402
-    BANK_ENTRY, GROUP, MARKS, MCQ_RANGE, QUESTION, QUESTION_LOOSE,
-    QUESTION_RANGE, SECTION_COUNTS, SECTION_NAME, WRITTEN_FROM, _as_number,
-    validate,
+    BANK_ENTRY, GROUP, MARKS, MCQ_RANGE, OPTION, QUESTION, QUESTION_LOOSE,
+    QUESTION_RANGE, SECTION_COUNTS, SECTION_NAME, SECTION_STEMS, WRITTEN_FROM,
+    Question, _as_number, _count_options, validate,
 )
 
 
@@ -49,6 +49,37 @@ def test_group_header_states_a_range_and_a_total():
 def test_group_header_of_the_other_year():
     match = GROUP.search("A組（Q30-Q33,4題10分）")
     assert [match.group(i) for i in range(1, 6)] == ["A", "30", "33", "4", "10"]
+
+
+def test_group_header_may_state_only_a_range():
+    """2012-2016 print the group headers bare, leaving the totals to the parent
+    section. Requiring the counts recorded no group at all on those years, and
+    every written question in 阅读理解二 then fell through to the modern era's
+    rules and came back as `choose` -- four option buttons under a question that
+    prints ruled answer lines."""
+    match = GROUP.search("A组（Q29-Q34）")
+    assert [match.group(i) for i in range(1, 6)] == ["A", "29", "34", None, None]
+    match = GROUP.search("B组（Q35-Q41）")
+    assert [match.group(i) for i in range(1, 6)] == ["B", "35", "41", None, None]
+
+
+def test_section_name_survives_a_misread_first_character():
+    """2017 p16 reads "五 阔读理解二（Q30-Q33，4题10分）" -- 阅 as 阔. That one
+    glyph kept the section from opening and 完成对话 absorbed Q30-Q40."""
+    assert SECTION_NAME.search("五 阔读理解二（Q30-Q33，4题10分）").group(1) == "读理解二"
+    assert SECTION_STEMS["读理解二"] == "阅读理解二"
+    # The two comprehension sections stay distinct from each other.
+    assert SECTION_NAME.search("三 阅读理解一（5题10分）").group(1) == "读理解一"
+
+
+def test_a_section_header_that_names_a_range_is_describing_that_range():
+    """2017 restates A組's range and totals on the parent header, so those counts
+    describe four of the section's eleven questions rather than the section."""
+    text = "五 阅读理解二（Q30-Q33，4题10分）"
+    assert QUESTION_RANGE.search(text) is not None
+    # ...and the counts are not in the section-header form anyway, because the
+    # bracket opens with the range rather than with a digit.
+    assert SECTION_COUNTS.search(text) is None
 
 
 def test_the_two_range_statements():
@@ -103,10 +134,79 @@ def test_marks_are_read_from_their_own_bracket():
     assert MARKS.findall("语文应用（15题30分）") == []
 
 
+def _bank_entry(text):
+    """The bank entry's number, whichever of the three printed forms it took."""
+    match = BANK_ENTRY.match(text)
+    return next((g for g in match.groups() if g is not None), None) if match else None
+
+
 def test_answer_bank_entries_are_counted():
-    assert BANK_ENTRY.match("8 我一定会做个负责任的主人").group(1) == "8"
-    assert BANK_ENTRY.match("1 把作业做完").group(1) == "1"
-    assert BANK_ENTRY.match("小明：我家的猫最近生了四只小猫") is None
+    # Bare, on 2017-2025.
+    assert _bank_entry("8 我一定会做个负责任的主人") == "8"
+    assert _bank_entry("1 把作业做完") == "1"
+    # Parenthesised, on 2012.
+    assert _bank_entry("（1）你放心好了") == "1"
+    assert _bank_entry("（8） 有人假扮政府人员进屋里偷东西") == "8"
+    # Dotted, on 2013-2016 -- and 2016 prints some without even a space.
+    assert _bank_entry("1. 太没有爱心了") == "1"
+    assert _bank_entry("7.巴士在繁忙时间挤满了搭客") == "7"
+    # Dialogue lines are not entries.
+    assert _bank_entry("小明：我家的猫最近生了四只小猫") is None
+    # Nor is the page number sitting alone at the top of the page: a separator of
+    # some kind is always required, and there is nothing for it to separate.
+    assert _bank_entry("3") is None
+
+
+# -------------------------------------------------------------- chosen or written?
+
+def _counted(rows_by_page, questions):
+    """Run the option count over hand-built pages. rows_by_page: {page: [(top, text)]}."""
+    index = {q.number: q for q in questions}
+    lines = {page: [line(text, top=top) for top, text in rows]
+             for page, rows in rows_by_page.items()}
+    return _count_options(index, lines)
+
+
+def test_a_block_question_is_recognised_by_its_four_options():
+    """阅读理解二 A組 Q30-Q32 on 2017-2025: chosen, four options beneath."""
+    counts = _counted(
+        {12: [(100, "Q30 学校为什么举办比赛？（2分）"),
+              (200, "（1）为了庆祝中秋节"),
+              (300, "（2）为了推广华文"),
+              (400, "（3）为了教学生做灯笼"),
+              (500, "（4）为了筹款")]},
+        [Question(number=30, page=12, tops=[100])])
+    assert counts[30] == 4
+
+
+def test_a_written_question_has_no_options_at_all():
+    """2012-2016 print the whole of 阅读理解二 as ruled lines and a 得分 box.
+    Read off the page the split is absolute -- four markers or none."""
+    counts = _counted(
+        {19: [(100, "Q37 为什么作者认为上学的路是那么的远？（3分）"),
+              (300, "得分")]},
+        [Question(number=37, page=19, tops=[100])])
+    assert counts[37] == 0
+
+
+def test_options_stop_at_the_next_question():
+    """A question's band ends where the next one's anchor begins, so Q30 cannot
+    collect the options printed under Q31."""
+    counts = _counted(
+        {12: [(100, "Q30 学校为什么举办比赛？"),
+              (200, "（1）甲"), (300, "（2）乙"),
+              (400, "Q31 参赛者要注意什么？"),
+              (500, "（3）丙"), (600, "（4）丁")]},
+        [Question(number=30, page=12, tops=[100]),
+         Question(number=31, page=12, tops=[400])])
+    assert counts[30] == 2
+    assert counts[31] == 2
+
+
+def test_option_marker_ignores_a_mark_allocation():
+    """"（3分）" is an allocation, not an option -- the marker is a bare digit."""
+    assert OPTION.findall("Q37 为什么？（3分）") == []
+    assert OPTION.findall("（1）为了庆祝中秋节") == ["1"]
 
 
 # ------------------------------------------------------------------------ validation
