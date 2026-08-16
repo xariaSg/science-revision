@@ -871,6 +871,43 @@ Science's bar counts **both booklets** — a Booklet A morning is marks on that
 paper. The topic, theme, facet and gate rollups underneath it stay Booklet B
 only, because they are keyed to its rubrics and the MCQ log has none of them.
 
+### 8.1.1 The bar is split by how the marks were answered for
+
+A bar that sums the whole sitting says which morning was good without saying
+which *half* of it was, and a full-marks Booklet A will hide a weak Booklet B
+inside the same column. So each bar stacks one block per kind of answering —
+`db.by_paper_and_day()` takes the kinds and a `kind_of(row)`, and every block
+carries its own fill, so a green base under a red cap is the whole finding.
+
+- **Science splits by booklet**, MCQ then written (`main.SCIENCE_KINDS`). They
+  are marked by different machinery and behave differently under it: an MCQ is
+  right or wrong, a written sub-part is usually partly right.
+- **Chinese splits by response mode** (`chinese.CN_KINDS`), which is the same
+  distinction drawn from what the paper asks for rather than from how it is
+  bound — Paper 2 is one sitting whichever era printed it (§7.5).
+- **The rollup under the chart is per booklet too**, and so is coverage: 28 MCQs
+  and forty-odd written sub-parts are different work, and one combined "still to
+  try" cannot say which half is untouched. `/api/progress` therefore spans the
+  union of both inventories, not Booklet B's alone.
+
+Three things about the drawing were got wrong first and are worth keeping:
+
+- **Stacked, not side by side.** Two bars per paper would show the same numbers
+  and cost the click its meaning — one bar has to be one paper on one day, or
+  §8.4 has nothing to open.
+- **A kind with nothing in it does not appear.** A Booklet A morning draws as one
+  block, and the key names only the kinds actually on the chart.
+- **The key is ordered from the declaration, not from the data.** First-seen
+  order is the order the *days* happened to fall in, which put Booklet B ahead of
+  Booklet A in the key while the chart stacked them the other way round.
+  `db.kinds_present()` exists for this.
+
+The block's letter (`A`/`B`, 选/写/自) is **drawn hidden and then measured**. Its
+height is a percentage of a percentage of a CSS variable, less whatever the row
+of year labels takes, so only the laid-out page knows whether the letter fits;
+predicting it from a pixel constant copied out of the stylesheet was over by a
+tenth.
+
 ### 8.2 Coverage is a count, not a list
 
 The report used to name every untouched sub-part as a row of question-number
@@ -885,3 +922,29 @@ back newest first, so a truncated read drops the **oldest** days — the left-ha
 end of the trend and the half of the comparison that shows improvement. A Chinese
 paper is 40 questions, so two sittings of one year already reach it. Every
 progress and score query passes `limit=None`.
+
+### 8.4 Clicking a bar opens what it is made of
+
+`/api/papers/{year}/attempts/{date}` and `/api/chinese/papers/{year}/attempts/
+{date}`. The bar says a morning on the 2021 paper earned 56 of 70; the panel says
+which questions those were and what she actually put down — for a chosen answer
+the option she picked against the option that was right, for a written one the
+answer as submitted and the marks it drew. It is the question a parent asks next,
+and it turns 82% back into something to talk about.
+
+- **The bucket is `db.day_of()`, used by both.** The chart files a row under a
+  day and the panel re-selects rows by it. A bar whose click cannot reproduce it
+  is worse than no drill-down at all, so the two never compute it separately.
+- **Every attempt is listed, not the best one.** A second try at a question is
+  the interesting row here; the rollups elsewhere already take the best.
+- **The correct option appears, and that is not a leak of the kind §2.1 guards
+  against.** Only questions attempted that day come back, and marking an answer
+  shows its key at the time of answering — nothing here was not already seen.
+- **Chosen answers pack into a grid and written ones get a list.** 28 MCQs fit
+  without scrolling; a written answer's text is the point of the panel, because
+  the mark alone does not say what she wrote and what she wrote is what a parent
+  can help with. A cell that wraps makes its whole row taller and the grid stops
+  reading as one sweep of ticks, so the cells do not wrap.
+
+The panel sits under the chart rather than in a dialog: it is a reading of the
+bar above it, and both should be visible at once.

@@ -30,7 +30,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import chinese
-from db import by_paper_and_day, init_db, list_attempts, save_attempt
+from db import (by_paper_and_day, day_of, init_db, kinds_present, list_attempts,
+                percent, save_attempt)
 from grade import GradingUnavailable, grade
 from stt import transcribe_bytes, model_name
 
@@ -92,6 +93,21 @@ SUBJECTS = [
         "modes": [],
     },
 ]
+
+
+# The two booklets are two ways of being asked, and the progress report keeps them
+# apart wherever it can: the chart bar is split into them and the rollup underneath
+# is per booklet. One number over both describes neither -- Booklet A is marked
+# against a key and cannot be partly right, Booklet B is marked link by link and
+# usually is -- and a full-marks Booklet A will otherwise hide a weak Booklet B
+# inside the same bar. `short` is what fits inside a chart segment; they are the
+# names the paper itself uses.
+SCIENCE_KINDS = [("mcq", "Booklet A · MCQ", "A"),
+                 ("oeq", "Booklet B · written", "B")]
+
+
+def science_kind(row: dict) -> str:
+    return "mcq" if row["booklet"] == "A" else "oeq"
 
 
 @app.get("/api/subjects")
@@ -449,7 +465,11 @@ def progress_all() -> dict:
 def _progress(year: int | None) -> dict:
     from collections import defaultdict
 
-    years = [year] if year is not None else indexed_years()
+    # The union of both booklets' inventories, not Booklet B's alone: coverage now
+    # counts the MCQs too, and a year indexed for only one of them still belongs in
+    # the report for the half it has.
+    years = ([year] if year is not None
+             else sorted(set(indexed_years()) | set(mcq_years())))
 
     # Rubric topics/themes keyed by sub-part, so a weak area can be named.
     meta: dict[tuple[int, int, str | None], dict] = {}
@@ -461,10 +481,10 @@ def _progress(year: int | None) -> dict:
             meta[(y, r["question"], r["part"])] = r
 
     # Two reads of the log, because the report has two halves and they do not want
-    # the same rows. The chart is about the paper, so it counts both booklets -- a
-    # Booklet A morning is marks earned on that paper and belongs on the bar. The
-    # rollups below are keyed to Booklet B's rubrics, and the MCQ log has no chains,
-    # facets or topics in it to roll up.
+    # the same rows. The chart and the booklet rollup are about the paper, so they
+    # count both booklets -- a Booklet A morning is marks earned on that paper and
+    # belongs on the bar. The topic, theme and facet rollups are keyed to Booklet
+    # B's rubrics, and the MCQ log has no chains, facets or topics in it to roll up.
     all_rows = [row for y in years
                 for row in list_attempts(year=y, limit=None)]
     rows = [row for row in all_rows if row["booklet"] == "B"]
@@ -490,6 +510,17 @@ def _progress(year: int | None) -> dict:
             bucket = "hit" if outcome.get("status") == "hit" else "missed"
             facet_stat[facet][bucket] += 1
 
+    # Booklet A's best-per-question, kept in its own map rather than keyed alongside
+    # Booklet B's. The two numberings do not collide today -- B continues A's -- but
+    # that is the paper's convention, not something the report should depend on.
+    mcq_best: dict[tuple[int, int], dict] = {}
+    for row in all_rows:
+        if row["booklet"] != "A" or row["marks"] is None:
+            continue
+        key = (row["year"], row["question"])
+        if key not in mcq_best or row["marks"] > mcq_best[key]["marks"]:
+            mcq_best[key] = dict(row)
+
     # Topic and theme strength use the best attempt only: the question is what the
     # student can do now, not what they got wrong on the way there.
     for key, row in best.items():
@@ -514,19 +545,52 @@ def _progress(year: int | None) -> dict:
     # Coverage is a count, not a list. Naming every untouched sub-part turned the
     # bottom of the report into a wall of question numbers that says nothing a
     # number does not -- and reads as a list of failures rather than of work left.
-    slots = untouched = 0
+    #
+    # Counted per booklet, because 28 MCQs and forty-odd written sub-parts are
+    # different work: one combined "still to try" number cannot say which half of
+    # the paper is untouched, which is the only thing it would be read for.
+    oeq_slots = oeq_untouched = 0
     for y in years:
-        for q in load_questions(y)["questions"]:
+        data = _indexed(load_questions, y)
+        for q in (data or {}).get("questions", []):
             for part in q["parts"]:
                 if part.get("is_parent"):
                     continue
-                slots += 1
-                untouched += (y, q["question"], part["part"]) not in best
+                oeq_slots += 1
+                oeq_untouched += (y, q["question"], part["part"]) not in best
 
+    mcq_slots = mcq_untouched = 0
+    for y in years:
+        data = _indexed(load_mcq, y)
+        for q in (data or {}).get("questions", []):
+            mcq_slots += 1
+            mcq_untouched += (y, q["question"]) not in mcq_best
+
+    # Marks here are the best attempt at each slot tried, against what those slots
+    # were worth -- the same measure as every other bar in the report, and the one
+    # that says what she can do now. Not a share of the whole paper: across
+    # fourteen papers that denominator makes a good morning look like a collapse.
+    labels = {kind_id: label for kind_id, label, _ in SCIENCE_KINDS}
+
+    def booklet(kind_id: str, attempts: dict, slots: int, untouched: int) -> dict:
+        earned = sum(row["marks"] for row in attempts.values())
+        possible = sum(row["marks_total"] or 0 for row in attempts.values())
+        return {"id": kind_id, "name": labels[kind_id], "earned": earned,
+                "possible": possible, "percent": percent(earned, possible),
+                "attempts": len(attempts), "slots": slots, "untouched": untouched}
+
+    booklets = [entry for entry in
+                (booklet("mcq", mcq_best, mcq_slots, mcq_untouched),
+                 booklet("oeq", best, oeq_slots, oeq_untouched))
+                if entry["slots"]]
+
+    papers = by_paper_and_day(all_rows, SCIENCE_KINDS, science_kind)
     return {
         "subject": "science",
         "years": sorted(years),
-        "papers": by_paper_and_day(all_rows),
+        "papers": papers,
+        "kinds": kinds_present(papers, SCIENCE_KINDS),
+        "booklets": booklets,
         "topics": ranked(topic_stat),
         "themes": ranked(theme_stat),
         "facets": [{"name": f, **v,
@@ -534,9 +598,95 @@ def _progress(year: int | None) -> dict:
                                if (v["hit"] + v["missed"]) else 0}
                    for f, v in sorted(facet_stat.items())],
         "gate_failures": gate_fails,
-        "slots": slots,
-        "untouched": untouched,
+        "slots": oeq_slots + mcq_slots,
+        "untouched": oeq_untouched + mcq_untouched,
         "total_attempts": len(all_rows),
+    }
+
+
+def _indexed(load, year: int) -> dict | None:
+    """The paper's index for one booklet, or None where that booklet is not built.
+
+    The report spans the union of both inventories, so a year present in one and
+    missing from the other must thin the report rather than 404 it.
+    """
+    try:
+        return load(year)
+    except HTTPException:
+        return None
+
+
+@app.get("/api/papers/{year}/attempts/{date}")
+def paper_day_attempts(year: int, date: str) -> dict:
+    """What one bar on the chart is made of: every answer given to one paper on
+    one day, in the order it was given.
+
+    The bar says a morning on the 2021 paper earned 40 of 56. This says which
+    questions those were and what she actually put down -- for Booklet A the
+    option chosen against the option that was right, for Booklet B the answer as
+    submitted and the marks it drew.
+
+    The correct option appears here, and that is not a leak of the kind section
+    2.1 guards against: only questions attempted on that day are returned, and
+    marking an MCQ shows its answer at the time of answering. Nothing here was
+    not already seen.
+
+    Every attempt is listed, not the best one. A second try at a question is the
+    interesting row on this page, and the rollups elsewhere already take the best.
+    """
+    rows = sorted((row for row in list_attempts(year=year, limit=None)
+                   if day_of(row) == date), key=lambda row: row["id"])
+
+    # Missing key file: the marks were still logged, so the answers are still
+    # worth showing -- just without the option that was correct beside them.
+    key = _indexed(load_mcq_key, year) or {}
+    correct_option = {entry["question"]: entry["answer"]
+                      for entry in key.get("answers", [])}
+
+    groups = []
+    for kind_id, name, short in SCIENCE_KINDS:
+        members = [row for row in rows if science_kind(row) == kind_id]
+        if not members:
+            continue
+        earned = sum(row["marks"] or 0 for row in members)
+        possible = sum(row["marks_total"] or 0 for row in members)
+        groups.append({
+            "id": kind_id, "name": name, "short": short,
+            "kind": "choice" if kind_id == "mcq" else "written",
+            "earned": earned, "possible": possible,
+            "percent": percent(earned, possible), "attempts": len(members),
+            "rows": [_attempt_row(row, correct_option) for row in members],
+        })
+
+    return {
+        "subject": "science", "year": year, "date": date,
+        "earned": sum(row["marks"] or 0 for row in rows),
+        "possible": sum(row["marks_total"] or 0 for row in rows),
+        "groups": groups,
+    }
+
+
+def _attempt_row(row: dict, correct_option: dict[int, int]) -> dict:
+    """One logged answer, shaped for reading rather than for re-marking."""
+    part = row["part"]
+    marks, total = row["marks"], row["marks_total"]
+    chosen = row["answer"] if row["mode"] == "mcq" else None
+    return {
+        "question": row["question"],
+        "part": part,
+        "label": f"Q{row['question']}" + (f"({part})" if part else ""),
+        "at": row["created_at"],
+        "mode": row["mode"],
+        "chose": chosen,
+        "answer": None if chosen else row["answer"],
+        "correct_option": correct_option.get(row["question"]) if chosen else None,
+        "marks": marks,
+        "marks_total": total,
+        # Full marks, not "not zero": a 1 of 2 on a written answer is neither
+        # right nor wrong, and the UI shows those as marks instead of a verdict.
+        "correct": None if marks is None or not total else marks >= total,
+        "graded": bool(row["graded"]),
+        "gate_passed": row["gate_passed"],
     }
 
 

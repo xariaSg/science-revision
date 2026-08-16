@@ -32,7 +32,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from cn_grade import GradingUnavailable, grade
-from db import by_paper_and_day, list_attempts, save_attempt
+from db import (by_paper_and_day, day_of, kinds_present, list_attempts, percent,
+                save_attempt)
 
 REPO = Path(__file__).resolve().parent.parent
 WORK_CN = REPO / "work-cn"
@@ -51,6 +52,17 @@ MODE_LABELS = {
     "typed": "Written answers",
     "self_marked": "Self-marked",
 }
+
+# The same split Science makes between its two booklets (main.SCIENCE_KINDS), drawn
+# from what the paper asks for rather than from how it is bound: Paper 2 is one
+# sitting, but choosing an option and writing an answer are close to two different
+# skills, and a chart bar that sums them says which morning was good without saying
+# which half of it was. `short` is a single character because it has to fit inside
+# a chart segment; it is the first character of what the mode is called in Chinese
+# -- 选 chosen, 写 written, 自 self-marked.
+CN_KINDS = [("choose", MODE_LABELS["choose"], "选"),
+            ("typed", MODE_LABELS["typed"], "写"),
+            ("self_marked", MODE_LABELS["self_marked"], "自")]
 
 router = APIRouter(prefix="/api/chinese", tags=["chinese"])
 
@@ -337,6 +349,84 @@ def _attempts(year: int | None) -> list[dict]:
                                      limit=None)]
 
 
+def _modes(years: list[int]) -> dict[tuple[int, int], str]:
+    """How each question is answered, read from the index.
+
+    Not from the attempt's own `mode` column, which cannot tell the difference:
+    a self-marked answer is logged as `typed`, because that is how it was given.
+    Only the paper knows that Q33 is a writing task the student marks herself.
+    """
+    return {(y, q["question"]): q["response_mode"]
+            for y in years for q in load_questions(y)["questions"]}
+
+
+@router.get("/papers/{year}/attempts/{date}")
+def paper_day_attempts(year: int, date: str) -> dict:
+    """What one bar on the chart is made of: every answer given to one paper on
+    one day, grouped the way the bar is split.
+
+    Science's equivalent is main.paper_day_attempts, and the same reasoning about
+    the key applies -- only questions attempted that day come back, and a chosen
+    answer shows its correct option at the moment it is marked, so nothing here
+    was not already seen.
+    """
+    rows = sorted((row for row in _attempts(year) if day_of(row) == date),
+                  key=lambda row: row["id"])
+    mode_of = _modes([year])
+
+    # A key that could not be read leaves `option` None (CLAUDE.md 7.5); the
+    # answers are still worth listing, just without the option beside them.
+    correct_option = {entry["question"]: entry["option"]
+                      for entry in load_key(year)["entries"]
+                      if entry["booklet"] == "paper2"}
+
+    groups = []
+    for kind_id, name, short in CN_KINDS:
+        members = [row for row in rows
+                   if mode_of.get((row["year"], row["question"])) == kind_id]
+        if not members:
+            continue
+        earned = sum(row["marks"] or 0 for row in members)
+        possible = sum(row["marks_total"] or 0 for row in members)
+        groups.append({
+            "id": kind_id, "name": name, "short": short,
+            "kind": "choice" if kind_id == "choose" else "written",
+            "earned": earned, "possible": possible,
+            "percent": percent(earned, possible), "attempts": len(members),
+            "rows": [_attempt_row(row, kind_id, correct_option) for row in members],
+        })
+
+    return {
+        "subject": SUBJECT, "year": year, "date": date,
+        "earned": sum(row["marks"] or 0 for row in rows),
+        "possible": sum(row["marks_total"] or 0 for row in rows),
+        "groups": groups,
+    }
+
+
+def _attempt_row(row: dict, kind_id: str, correct_option: dict[int, int]) -> dict:
+    """One logged answer, shaped for reading rather than for re-marking."""
+    marks, total = row["marks"], row["marks_total"]
+    chosen = row["answer"] if kind_id == "choose" else None
+    return {
+        "question": row["question"],
+        "part": None,
+        "label": f"Q{row['question']}",
+        "at": row["created_at"],
+        "mode": row["mode"],
+        "chose": chosen,
+        "answer": None if chosen else row["answer"],
+        "correct_option": correct_option.get(row["question"]) if chosen else None,
+        "marks": marks,
+        "marks_total": total,
+        "correct": None if marks is None or not total else marks >= total,
+        # A written answer submitted while grading was unavailable, or from a year
+        # whose key prints no mark points: logged, unmarked, still to be looked at.
+        "graded": bool(row["graded"]),
+        "awaiting": marks is None,
+    }
+
+
 @router.get("/papers/{year}/progress")
 def paper_progress(year: int) -> dict:
     """Progress on one Chinese paper."""
@@ -364,17 +454,16 @@ def _progress(year: int | None) -> dict:
     years = [year] if year is not None else indexed_years()
     rows = _attempts(year)
 
-    # Which section and mode each question belongs to, across the years in view.
-    # Both are properties of the paper, so they are read from the index rather
-    # than logged with the attempt.
+    # Which section each question belongs to, across the years in view. A property
+    # of the paper, so it is read from the index rather than logged with the
+    # attempt -- as is the response mode, for a sharper reason (see _modes).
     section_of: dict[tuple[int, int], str] = {}
-    mode_of: dict[tuple[int, int], str] = {}
     slots = 0
     for y in years:
         for q in load_questions(y)["questions"]:
             section_of[(y, q["question"])] = q["section"]
-            mode_of[(y, q["question"])] = q["response_mode"]
             slots += 1
+    mode_of = _modes(years)
 
     section_stat: dict[str, dict] = defaultdict(
         lambda: {"earned": 0, "possible": 0, "attempts": 0})
@@ -423,10 +512,13 @@ def _progress(year: int | None) -> dict:
     for name in printed_order:
         seen.setdefault(name, None)
 
+    papers = by_paper_and_day(
+        rows, CN_KINDS, lambda row: mode_of.get((row["year"], row["question"])))
     return {
         "subject": "chinese",
         "years": sorted(years),
-        "papers": by_paper_and_day(rows),
+        "papers": papers,
+        "kinds": kinds_present(papers, CN_KINDS),
         "sections": ranked(section_stat, list(seen)),
         "modes": ranked(mode_stat),
         "slots": slots,
