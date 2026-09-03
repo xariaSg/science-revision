@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <!-- Home: subject, then year, then (Science only) which booklet. -->
+  <!-- Home: subject, then paper group, then paper, then (Science only)
+       which booklet. The group step is skipped where a subject has one. -->
   <div id="home" class="screen home">
     <header class="home-head">
       <h1 id="homeTitle">PSLE practice</h1>
@@ -26,7 +27,7 @@
       <h1><button id="sciHome" class="crumb" type="button">‹ Papers</button>
         <span id="sciTitle">Science</span></h1>
       <div class="pickers">
-        <label>Paper <select id="year"></select></label>
+        <label>Paper <select id="paper"></select></label>
         <div class="booklets" role="group" aria-label="Which booklet">
           <button type="button" data-booklet="A">Booklet A<span> · multiple choice</span></button>
           <button type="button" data-booklet="B">Booklet B<span> · written</span></button>

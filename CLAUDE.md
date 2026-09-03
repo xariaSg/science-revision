@@ -871,6 +871,43 @@ Science's bar counts **both booklets** — a Booklet A morning is marks on that
 paper. The topic, theme, facet and gate rollups underneath it stay Booklet B
 only, because they are keyed to its rubrics and the MCQ log has none of them.
 
+### 8.1.1 The bar is split by how the marks were answered for
+
+A bar that sums the whole sitting says which morning was good without saying
+which *half* of it was, and a full-marks Booklet A will hide a weak Booklet B
+inside the same column. So each bar stacks one block per kind of answering —
+`db.by_paper_and_day()` takes the kinds and a `kind_of(row)`, and every block
+carries its own fill, so a green base under a red cap is the whole finding.
+
+- **Science splits by booklet**, MCQ then written (`main.SCIENCE_KINDS`). They
+  are marked by different machinery and behave differently under it: an MCQ is
+  right or wrong, a written sub-part is usually partly right.
+- **Chinese splits by response mode** (`chinese.CN_KINDS`), which is the same
+  distinction drawn from what the paper asks for rather than from how it is
+  bound — Paper 2 is one sitting whichever era printed it (§7.5).
+- **The rollup under the chart is per booklet too**, and so is coverage: 28 MCQs
+  and forty-odd written sub-parts are different work, and one combined "still to
+  try" cannot say which half is untouched. `/api/progress` therefore spans the
+  union of both inventories, not Booklet B's alone.
+
+Three things about the drawing were got wrong first and are worth keeping:
+
+- **Stacked, not side by side.** Two bars per paper would show the same numbers
+  and cost the click its meaning — one bar has to be one paper on one day, or
+  §8.4 has nothing to open.
+- **A kind with nothing in it does not appear.** A Booklet A morning draws as one
+  block, and the key names only the kinds actually on the chart.
+- **The key is ordered from the declaration, not from the data.** First-seen
+  order is the order the *days* happened to fall in, which put Booklet B ahead of
+  Booklet A in the key while the chart stacked them the other way round.
+  `db.kinds_present()` exists for this.
+
+The block's letter (`A`/`B`, 选/写/自) is **drawn hidden and then measured**. Its
+height is a percentage of a percentage of a CSS variable, less whatever the row
+of year labels takes, so only the laid-out page knows whether the letter fits;
+predicting it from a pixel constant copied out of the stylesheet was over by a
+tenth.
+
 ### 8.2 Coverage is a count, not a list
 
 The report used to name every untouched sub-part as a row of question-number
@@ -885,3 +922,269 @@ back newest first, so a truncated read drops the **oldest** days — the left-ha
 end of the trend and the half of the comparison that shows improvement. A Chinese
 paper is 40 questions, so two sittings of one year already reach it. Every
 progress and score query passes `limit=None`.
+
+### 8.4 Clicking a bar opens what it is made of
+
+`/api/papers/{year}/attempts/{date}` and `/api/chinese/papers/{year}/attempts/
+{date}`. The bar says a morning on the 2021 paper earned 56 of 70; the panel says
+which questions those were and what she actually put down — for a chosen answer
+the option she picked against the option that was right, for a written one the
+answer as submitted and the marks it drew. It is the question a parent asks next,
+and it turns 82% back into something to talk about.
+
+- **The bucket is `db.day_of()`, used by both.** The chart files a row under a
+  day and the panel re-selects rows by it. A bar whose click cannot reproduce it
+  is worse than no drill-down at all, so the two never compute it separately.
+- **Every attempt is listed, not the best one.** A second try at a question is
+  the interesting row here; the rollups elsewhere already take the best.
+- **The correct option appears, and that is not a leak of the kind §2.1 guards
+  against.** Only questions attempted that day come back, and marking an answer
+  shows its key at the time of answering — nothing here was not already seen.
+- **Chosen answers pack into a grid and written ones get a list.** 28 MCQs fit
+  without scrolling; a written answer's text is the point of the panel, because
+  the mark alone does not say what she wrote and what she wrote is what a parent
+  can help with. A cell that wraps makes its whole row taller and the grid stops
+  reading as one sweep of ticks, so the cells do not wrap.
+
+The panel sits under the chart rather than in a dialog: it is a reading of the
+bar above it, and both should be visible at once.
+
+---
+
+## 9. The container
+
+`Dockerfile` and `docker-compose.yml` build one image holding the app, both
+subjects' papers and the Whisper weights. `docs/DOCKER.md` is the operational
+note; three things about it are load-bearing rather than incidental.
+
+- **`requirements-app.txt` is what the image installs**, not `requirements.txt`.
+  The ingestion half of `requirements.txt` cannot install on Linux at all — the
+  OCR pass is macOS Vision, and pyobjc has no Linux wheels. A new *runtime*
+  dependency must be added to **both** files, or it resolves locally and the
+  container fails on import.
+- **The image carries no answer renders.** `work-ans/*/pages` and
+  `work-cn/*/answer-pages` are excluded by `.dockerignore`, and `work/`'s two
+  full-paper unpacks are pruned at build time to their Booklet B range. The routes
+  already refuse to serve outside it (§1.6, §7.1); this makes the filesystem agree,
+  so a later routing mistake cannot expose a page that is not there.
+- **Nothing is fetched at run time.** The Whisper weights are baked in and
+  `HF_HUB_OFFLINE=1` holds the container to them, so §2.2 survives being hosted.
+  Changing `PSLE_WHISPER_MODEL` therefore needs a rebuild
+  (`--build-arg WHISPER_MODEL=…`), not an edit to `.env`.
+
+One thing hosting cannot fix: browsers grant microphone access only on `https://`
+or `localhost`, so Science's spoken answers do not work over plain HTTP to a LAN
+address and fall back to typing. Chinese is unaffected — it is typed and chosen by
+design (§7.6).
+
+---
+
+## 10. The 2025 school prelims
+
+Fourteen schools' Primary 6 prelim papers, added alongside the PSLE corpus as
+practice material for the same two booklets. Everything below was confirmed by
+direct inspection.
+
+The corpus is **not** a second EPH compilation. It is fourteen independent papers
+that happen to follow the same conventions loosely, and the whole of this section
+is about where "loosely" bites.
+
+| | PSLE (§1–6) | 2025 prelims |
+|---|---|---|
+| Papers | 14, one per year | 14, one per school, all 2025 |
+| Source shape | one PDF, split by detection | three PDFs, already split |
+| Booklet A | 28 or 30 questions | 28 on all fourteen |
+| Booklet B | 44 marks | 44 marks stated on all fourteen |
+| Answers | one publisher, one layout | fourteen schools, fourteen layouts |
+| Marking | authored chains for 5 years | scaffolded, chains not yet authored |
+
+### 10.1 A paper is no longer a year
+
+The identity change is the part that reaches furthest. A paper used to be named by
+its year because the PSLE corpus has exactly one paper per year; fifteen papers now
+share 2025, so a paper is named by a **string id**:
+
+```
+2024                    the 2024 PSLE paper
+2025-prelim-rosyth      Rosyth's 2025 prelim
+```
+
+The PSLE ids are unchanged — `str(year)` is still a valid id — so nothing already
+built moved and every URL that worked before still works. `build/corpus.py` holds
+the conventions for the build side and `app/papers.py` for the app side; they are
+deliberately separate, because the app must not import from `build/` and must not
+depend on `papers/`, which is gitignored and absent from the container (§9).
+
+`year` survives beside the id rather than being replaced by it: the syllabus era is
+a property of *when a paper was sat* (§5), and all fifteen 2025 papers share it.
+
+Two consequences worth knowing:
+
+- **The attempt log gained a `paper` column**, backfilled from `CAST(year AS TEXT)`
+  by the same `LATER_COLUMNS` mechanism §8 relies on. Reading the log without it
+  merges Rosyth's Q7 into the PSLE paper's Q7 — the same collision `subject` was
+  added to prevent between Science and Chinese.
+- **`name.isdigit()` was how every build script found papers**, and it silently
+  skips every prelim. That is why `corpus.discover()` exists rather than each
+  script keeping its own answer.
+
+### 10.2 The source is three PDFs, and that is a gift
+
+```
+MCQ/2025-Prelim Exam-<school>.pdf        16–24pp   Booklet A
+OEQ/2025-Prelim Exam-<school>.pdf        14–21pp   Booklet B
+Answers/2025-Prelim Exam-<school>.pdf     2–8pp    both booklets' answers
+```
+
+Already split, so none of §1.3's boundary detection is needed and none of it can
+go wrong. `build/prelims.py` ingests them and `build/prelim_unpack.py` renders
+them into the roots the PSLE pipeline already uses, keyed on the paper id.
+
+- **The files are copied into `papers/prelims/`, not referenced in place.** The
+  source is a OneDrive folder, and cloud sync can evict a file to a placeholder;
+  a corpus that stops building because OneDrive reclaimed space is a corpus that
+  cannot be rebuilt.
+- **One filename in fourteen breaks the pattern** — `2025-Prelim-ACS Junior.pdf`
+  against thirteen `2025-Prelim Exam-…`. The "Exam" is optional in the parser,
+  because requiring it drops that school silently.
+- **Every question page carries a `www.sgexam.com` watermark** in its text layer,
+  and *only* that. A character count that does not strip it reads ~500 characters
+  and concludes the page has a text layer worth reading. It has none: the question
+  papers are pure scans and Vision is the only source.
+
+### 10.3 Booklet A: the paper states its shape four ways and no school prints all four
+
+§1.5 could anchor on one sentence because all 14 PSLE papers word it identically.
+The prelims do not, so the anchor became a reconciliation over every claim the
+front matter makes:
+
+```
+Section A (28 x 2 marks)            count and value together
+Booklet A: 28 questions (56 marks)  count and total on one row
+For each question from 1 to 28,     the range
+                       (56 marks)   the total alone
+```
+
+`read_structure()` collects them as separate claims and `reconcile_structure()`
+settles on a count. **One row is one statement, however many facts were read off
+it** — Red Swastika's "Booklet A: 28 questions (56 marks)" states a count and a
+total at once, and counting it twice would let one line outvote two independent
+ones.
+
+Five ways this failed, all silently, all now the reason the code is shaped as it is:
+
+1. **Rosyth prints the range as "1 to 23".** The paper is 28 questions long; the
+   scan mangles the 8. It also prints "Booklet A [28 x 2 marks]" one line above.
+   The tie breaks on §1.5's own invariant — 56 marks over 23 questions is not a
+   whole number of marks per question and over 28 it is exactly 2 — so a count
+   that cannot divide the stated total is rejected outright. **A digit inside a
+   sentence and an arithmetic claim are not equally good evidence.**
+2. **Nanyang states no range at all**, only "Section A: Multiple Choice Questions
+   [56 marks]", behind a cover *and* a blank page. Its count comes from the total
+   divided by 2, and that section header is the only thing separating the cover's
+   own numbered instructions from question 1.
+3. **Henry Park's range statement loses its leading "F"** — `or each question from
+   1 to 28` — so nothing matched and the anchor fell back to row 0, putting the
+   cover's instructions back in competition with the questions. The front matter
+   now ends at the last row that said *anything* about the paper's shape, in
+   whatever form.
+4. **Four papers lose question 1 and one loses question 28.** Not a reading
+   problem: `_recover_positions` places a question between its two neighbours, and
+   the first and last questions have only one each, so they were the two most
+   exposed to a dropped number and the two that could never be recovered. The
+   anchor bounds the run at the start and the end of the paper bounds it at the
+   finish. Question 1 gets its own tier — it is the first thing after the front
+   matter — and when its options are overleaf it owns that page from the top, the
+   rule §1.5.1 already applies to every other question that begins overleaf.
+5. **The left margin is not a constant.** St Nicholas prints its question numbers
+   at 0.22 of the page width, further in than 2022 prints its *options* (0.10), so
+   no fixed `MARKER_ZONE` works: tuned for the PSLE papers it found 12 of St
+   Nicholas's 28 questions. The zone is now a generous first sieve and the margin
+   is **measured per paper** from the run that survives, then re-sieved against it
+   — the same discipline §7.5 item 5 arrived at for the Chinese key.
+
+Three schools — Nan Hua, Raffles Girls, Red Swastika — print no Booklet A mark
+total anywhere in the booklet; Raffles prints "56" in a score table with no word
+"marks" beside it. Every Booklet A question in both corpora is worth 2 (§1.5), so
+the mark is recoverable, but it is recorded as `marks_source: "assumed"` rather
+than read. A question the app silently scores 0 for is worse than one whose
+provenance is on the record.
+
+**All fourteen index to 28 questions.**
+
+### 10.4 The answer keys, and the two that a person had to read
+
+`build/prelim_key.py`. Twelve schools typed their Booklet A key and it is read
+exactly from the text layer — better than any OCR pass, and better than the PSLE
+corpus gets. The layouts still vary: ACS Junior runs `Q1 / 3` down a three-column
+grid, Tao Nan transposes it into a row of question numbers above a row of answers.
+
+**Two schools printed their key as a picture of a grid.** Their digits are read
+off the scan by eye and committed to `review/prelim-mcq-key.json`, the precedent
+being `review/marks.json` (§1.4) — `work-ans/` is regenerated, so a human reading
+has to live in the repo.
+
+That file **cannot quietly overrule the scan**: every entry is checked against
+whatever OCR could establish from the same grid, and a disagreement fails the
+extraction outright. OCR corroborated 26 of Red Swastika's 28 unaided and 19 of
+Nanyang's. All 56 digits were then re-checked against the scans a second time.
+This matters more than anything else in this section for §1.6.1's reason: **there
+is no partial credit to soften a wrong key — the child is simply told they were
+wrong when they were right.**
+
+**All fourteen keys are complete: 28 answers each, cross-checked against the
+booklet's own question count.**
+
+### 10.5 Booklet B, and what is not built
+
+`build/prelim_answers.py` reads each school's suggested answers into the shape
+`build/rubric.py` scaffolds from. Two things about it:
+
+- **Which source to read is decided by what it yields, not by how much text it
+  holds.** Four schools typed their Booklet A key and scanned their Booklet B
+  answers, so the document has a healthy text layer containing none of what is
+  wanted here. Choosing on size picked it and returned nothing for the whole
+  booklet.
+- **A sub-part letter is only a label when something separates it from what
+  follows.** Without that rule "converted into sugar and oxygen" opens sub-part
+  (c) and swallows the rest of the answer — which is exactly how St Nicholas Q30
+  came out with its photosynthesis definition cut in half and the second half
+  filed under (c). The paper's own part list cannot catch this alone, because (c)
+  is a part that question really does ask for.
+
+**350 of 432 sub-parts have a model answer**, and all 350 are scaffolded into
+`rubrics/2025-prelim-<school>.json` with marks, scenario anchors and the school's
+own answer text. The remaining 82 are mostly answers printed as tables or
+diagrams — the same limitation §7.8 records for the three Chinese table answers.
+
+**The chains are not authored.** This is the honest state of the corpus, not an
+oversight:
+
+- Booklet B auto-marking needs hand-authored cause-and-effect chains in
+  `build/authored/<paper>.py` (§3.1), and §3 is explicit that generating them by
+  splitting the model answer on sentence boundaries produces plausible-looking
+  rubrics that award marks in the wrong places. **A wrong rubric teaches a child
+  wrong science with full confidence.**
+- Until they are authored, Booklet B behaves for the prelims exactly as it does
+  for nine of the fourteen PSLE years: the student practises against the original
+  scan and self-marks against the school's model answer. That is the existing
+  norm, not a regression.
+- The scaffolds are `reviewed: false` and carry `source: "<school> suggested
+  answers"` with `authoritative: false`. These are a school's suggested answers,
+  not a marking scheme — the same caveat §1.6 records for EPH's.
+
+### 10.6 Build order
+
+```bash
+build/prelims.py         # OneDrive -> papers/prelims/     (--dry-run to inspect)
+build/prelim_unpack.py   # PDFs     -> work-a, work-b, work-ans
+build/index_mcq.py       # Booklet A pages -> questions.json
+build/prelim_key.py      # answers  -> mcq-answers.json    (needs index_mcq first)
+build/index_questions.py --work work-b     # Booklet B -> questions.json
+build/prelim_answers.py  # answers  -> answers.json        (needs index_questions)
+build/rubric.py --questions-root work-b    # -> rubrics/<paper>.json
+```
+
+The two ordering constraints are the ones §1.6.1 and §7.7 already document, for
+the same reason: a key that is short at the *end* leaves no gap in the sequence
+for anyone to notice, so only the booklet's own question count reveals it.

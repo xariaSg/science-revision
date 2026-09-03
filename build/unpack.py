@@ -69,9 +69,16 @@ def discover_papers(papers_dir: Path = PAPERS_DIR) -> dict[int, Path]:
     return found
 
 
-def unpack(src: Path, year: int, out_dir: Path, dpi: int = DEFAULT_DPI,
-           overwrite: bool = False) -> dict:
-    """Render every page of `src` to PNG under `out_dir`, and write a manifest."""
+def unpack(src: Path, paper: int | str, out_dir: Path, dpi: int = DEFAULT_DPI,
+           overwrite: bool = False, year: int | None = None) -> dict:
+    """Render every page of `src` to PNG under `out_dir`, and write a manifest.
+
+    `paper` is the paper's id. For the PSLE corpus that is its year, which is what
+    every caller passed back when a year was the only way to name a paper; the
+    school prelims need a string ("2025-prelim-rosyth") because fourteen of them
+    share 2025 (build/prelims.py). `year` stays in the manifest beside it, since
+    the syllabus era is a property of the year and those fourteen all have one.
+    """
     pages_dir = out_dir / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
 
@@ -96,7 +103,9 @@ def unpack(src: Path, year: int, out_dir: Path, dpi: int = DEFAULT_DPI,
         pages.append(Page(number, rel, width, height, len(page.get_text().strip())))
 
     manifest = {
-        "year": year,
+        "paper": str(paper),
+        "year": year if year is not None else (
+            int(paper) if str(paper).isdigit() else None),
         "source": str(_repo_relative(src)),
         "dpi": dpi,
         "num_pages": doc.page_count,
@@ -107,6 +116,32 @@ def unpack(src: Path, year: int, out_dir: Path, dpi: int = DEFAULT_DPI,
 
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
+
+
+def write_booklet_b_boundaries(out_dir: Path, manifest: dict) -> dict:
+    """Record the whole file as Booklet B.
+
+    For a source that *is* Booklet B there is no detection to do, and so nothing
+    for detection to get wrong. Split out of main() because the school prelims
+    arrive pre-split too (build/prelims.py) and need exactly this.
+    """
+    bounds = {
+        "paper": manifest["paper"],
+        "year": manifest["year"],
+        "num_pages": manifest["num_pages"],
+        "booklet_a": None,
+        "booklet_b": {"start": 1, "end": manifest["num_pages"],
+                      "cover": 1, "stated_printed_pages": None},
+        "answers": None,
+        "blank_pages": [],
+        "confidence": "high",
+        "checks": [{"check": "booklet_b_only_source", "ok": True,
+                    "detail": "whole file is Booklet B; nothing detected"}],
+        "warnings": [],
+        "needs_human_review": False,
+    }
+    (out_dir / "boundaries.json").write_text(json.dumps(bounds, indent=2))
+    return bounds
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,21 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest = unpack(papers[year], year, args.out / str(year),
                           dpi=args.dpi, overwrite=args.overwrite)
         if args.booklet_b_only:
-            # No detection to do or to get wrong: the file is Booklet B end to end.
-            (args.out / str(year) / "boundaries.json").write_text(json.dumps({
-                "year": year,
-                "num_pages": manifest["num_pages"],
-                "booklet_a": None,
-                "booklet_b": {"start": 1, "end": manifest["num_pages"],
-                              "cover": 1, "stated_printed_pages": None},
-                "answers": None,
-                "blank_pages": [],
-                "confidence": "high",
-                "checks": [{"check": "booklet_b_only_source", "ok": True,
-                            "detail": "whole file is Booklet B; nothing detected"}],
-                "warnings": [],
-                "needs_human_review": False,
-            }, indent=2))
+            write_booklet_b_boundaries(args.out / str(year), manifest)
 
         chars = manifest["text_layer_chars"]
         note = f"  [text layer: {chars:,} chars]" if chars else ""

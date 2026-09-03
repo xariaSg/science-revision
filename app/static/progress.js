@@ -11,7 +11,7 @@
 
 const els = {
   subject: document.getElementById("subject"),
-  year: document.getElementById("year"),
+  paper: document.getElementById("paper"),
   report: document.getElementById("report"),
 };
 
@@ -67,12 +67,59 @@ function axisSteps(peak) {
   return [4, 3, 2, 1, 0].map((i) => step * i);
 }
 
-// Marks per paper per day. Height is marks, which is what was asked for and is
-// also the honest axis: a percentage would show a single lucky question as a
-// full-height bar beside a whole paper. So the bar is as tall as the marks that
-// were on offer, and the filled part is what she got — a short bar means a short
-// sitting, not a bad one.
-function chart(papers) {
+// One bar per paper per day, split into how the marks were answered for. Height is
+// marks, which is what was asked for and is also the honest axis: a percentage
+// would show a single lucky question as a full-height bar beside a whole paper. So
+// the bar is as tall as the marks that were on offer, the filled part of each block
+// is what she got — a short bar means a short sitting, not a bad one.
+//
+// The split is stacked rather than drawn as two bars side by side, so the bar still
+// reads as one sitting and a click on it still means one paper on one day. Blocks
+// stack in the order the paper is sat (the track is column-reverse), so Science's
+// MCQ is the base and its written half sits on top.
+function segment(part, paper) {
+  return `
+    <div class="cseg" title="${esc(part.name)} · ${part.earned} of ${part.possible}
+         marks · ${part.attempts} answer${part.attempts === 1 ? "" : "s"}"
+         style="height:${(part.possible / paper.possible) * 100}%">
+      <div class="cfill ${strength(part.percent)}" style="height:${part.percent}%"></div>
+      ${part.short ? `<span class="ckind" hidden>${esc(part.short)}</span>` : ""}
+    </div>`;
+}
+
+// The letter is drawn hidden and then measured, rather than sized up in advance from
+// the numbers: a block's height is a percentage of a percentage of a CSS variable,
+// less whatever the row of year labels below the plot takes, and only the laid-out
+// page knows what that comes to. Predicting it from a pixel constant copied out of
+// the stylesheet was over by a tenth, which is the difference between a chip that
+// fits and one crushed into a sliver.
+function fitKindLabels(root) {
+  for (const seg of root.querySelectorAll(".cseg")) {
+    const label = seg.querySelector(".ckind");
+    if (label) label.hidden = seg.getBoundingClientRect().height < 20;
+  }
+}
+
+function bar(paper, max) {
+  // A paper with no split — an older attempt, or a subject that does not declare
+  // one — draws as a single block, which is what the chart did before the split.
+  const parts = paper.parts && paper.parts.length ? paper.parts
+    : [{ id: "all", name: `${paper.label} paper`, short: "", earned: paper.earned,
+         possible: paper.possible, percent: paper.percent, attempts: paper.attempts }];
+  return `
+    <button type="button" class="cbar" data-date="${esc(paper.date)}"
+            data-paper="${esc(paper.paper)}"
+            aria-label="${esc(paper.date)}, ${esc(paper.label)} paper, ${paper.earned} of
+                        ${paper.possible} marks. Show the answers.">
+      <span class="ctrack" style="height:${(paper.possible / max) * 100}%">
+        ${parts.map((part) => segment(part, paper)).join("")}
+        <span class="cval">${paper.earned}</span>
+      </span>
+      <span class="cyear">${esc(paper.label)}</span>
+    </button>`;
+}
+
+function chart(papers, kinds) {
   if (!papers.length) {
     return `<p class="empty">No marks logged yet. Answer a few questions and
             they will show up here.</p>`;
@@ -91,18 +138,7 @@ function chart(papers) {
 
   const groups = byDate.map(({ date, bars }) => `
     <div class="cgroup">
-      <div class="cbars">
-        ${bars.map((b) => `
-          <div class="cbar" title="${esc(b.date)} · ${b.year} paper · ${b.earned} of
-               ${b.possible} marks · ${b.attempts} question${b.attempts === 1 ? "" : "s"}">
-            <div class="ctrack" style="height:${(b.possible / max) * 100}%">
-              <div class="cfill ${strength(b.percent)}"
-                   style="height:${pct(b.earned, b.possible)}%"></div>
-              <span class="cval">${b.earned}</span>
-            </div>
-            <span class="cyear">${b.year}</span>
-          </div>`).join("")}
-      </div>
+      <div class="cbars">${bars.map((b) => bar(b, max)).join("")}</div>
       <div class="cdate">${shortDate(date)}</div>
     </div>`).join("");
 
@@ -115,7 +151,10 @@ function chart(papers) {
       </div>
     </div>
     <p class="chint"><span class="key-fill"></span> marks earned ·
-       <span class="key-track"></span> marks attempted · the label is the paper</p>`;
+       <span class="key-track"></span> marks attempted ·
+       ${kinds.map((k) => `<span class="key-kind">${esc(k.short)}</span>
+                           ${esc(k.name)}`).join(" · ")}</p>
+    <p class="chint">Click a bar to see what she answered that day.</p>`;
 }
 
 function trend(papers) {
@@ -125,6 +164,76 @@ function trend(papers) {
   return `<p class="trend ${delta > 0 ? "up" : "down"}">
     ${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} percentage points
     since ${shortDate(papers[0].date)}</p>`;
+}
+
+// ------------------------------------------------- what a bar is made of
+
+// A bar says a morning on the 2021 paper earned 56 of 70. This says which
+// questions those were and what she actually put down — the thing a parent asks
+// next, and the thing that turns "82%" back into something to talk about.
+//
+// Grouped the way the bar is split, and in the same order, so the panel reads as
+// the bar taken apart rather than as a second, differently-shaped report.
+
+const time = (iso) => new Date(iso)
+  .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+// Chosen answers are dense — 28 of them in a Booklet A morning — so they pack into
+// a grid of small cells rather than a list. Each one carries the question, the
+// option she picked, and whether it was right; a wrong one also carries the option
+// that was, which she was already shown when she answered it.
+function choiceCells(rows) {
+  return `<div class="dgrid">${rows.map((r) => {
+    const state = r.correct === null ? "" : r.correct ? "ok" : "no";
+    const answer = r.correct === false && r.correct_option
+      ? `<span class="dans">ans ${r.correct_option}</span>` : "";
+    return `
+      <span class="dcell ${state}" title="${esc(r.label)} · chose option ${esc(r.chose)}${
+        r.correct === false && r.correct_option
+          ? `, the answer was ${r.correct_option}` : ""} · ${time(r.at)}">
+        <span class="dq">${esc(r.label)}</span>
+        <span class="dchose">${esc(r.chose ?? "—")}</span>
+        <span class="dv">${r.correct === null ? "·" : r.correct ? "✓" : "✗"}</span>
+        ${answer}
+      </span>`;
+  }).join("")}</div>`;
+}
+
+// Written answers are few and long, so they get the room to be read. The answer
+// text is the point of the panel here: a mark on its own does not say what she
+// wrote, and what she wrote is what a parent can actually help with.
+function writtenList(rows) {
+  return `<ul class="dlist">${rows.map((r) => `
+    <li>
+      <div class="dline">
+        <span class="dq">${esc(r.label)}</span>
+        <span class="dmark ${r.marks === null ? "" : strength(pct(r.marks, r.marks_total))}">
+          ${r.marks === null ? "not marked yet" : `${r.marks}/${r.marks_total}`}</span>
+        <span class="dtime">${time(r.at)}</span>
+      </div>
+      <p class="dtext">${esc(r.answer || "")}</p>
+      ${r.gate_passed === 0 ? `<p class="dnote">Zero for not using the question's
+        own details — the textbook-recital trap.</p>` : ""}
+    </li>`).join("")}</ul>`;
+}
+
+function dayPanel(data) {
+  if (!data.groups.length) {
+    return `<p class="empty">Nothing logged for that paper on that day.</p>`;
+  }
+  return `
+    <div class="dhead">
+      <strong>${shortDate(data.date)} · ${esc(data.label)} paper</strong>
+      <span>${data.earned} of ${data.possible} marks</span>
+      <button type="button" class="dclose">Close</button>
+    </div>
+    ${data.groups.map((g) => `
+      <div class="dgroup">
+        <h4>${esc(g.name)}
+          <span>${g.earned}/${g.possible} · ${g.attempts}
+                answer${g.attempts === 1 ? "" : "s"}</span></h4>
+        ${g.kind === "choice" ? choiceCells(g.rows) : writtenList(g.rows)}
+      </div>`).join("")}`;
 }
 
 // ---------------------------------------------------------------- the report
@@ -137,6 +246,21 @@ function summary(data, totals) {
       <div class="stat"><span>${data.total_attempts}</span>attempts</div>
       <div class="stat"><span>${data.untouched}</span>of ${data.slots} not tried yet</div>
     </div>`;
+}
+
+// The two booklets, side by side. Marks are of what she has tried, like every other
+// bar here; the coverage half of the row is of the whole paper, because "24 of 402"
+// is the honest answer to how much is left and a percentage of it would not be.
+function bookletRows(booklets) {
+  return booklets.map((b) => `
+    <div class="prow wide">
+      <div class="pname">${esc(b.name)}</div>
+      <div class="pbar">${b.possible ? `<div class="pfill ${strength(b.percent)}"
+        style="width:${b.percent}%"></div>` : ""}</div>
+      <div class="ppct">${b.possible ? `${b.percent}%` : "—"}</div>
+      <div class="pmeta">${b.possible ? `${b.earned}/${b.possible} marks · ` : ""}${
+        b.slots - b.untouched} of ${b.slots} tried</div>
+    </div>`).join("");
 }
 
 function scienceBody(data) {
@@ -153,6 +277,13 @@ function scienceBody(data) {
       That is the textbook-recital trap — the science was there but it did not
       answer the specific question.
     </div>` : ""}
+
+    <h3>MCQ and written</h3>
+    <p class="hint">Booklet A is marked against the answer key and is right or
+    wrong; Booklet B is marked link by link and is usually partly right. They are
+    two different skills sharing one paper. Marks are her best attempt at each
+    question, so these read higher than the chart above, which counts every try.</p>
+    ${bookletRows(data.booklets || [])}
 
     <h3>Weakest syllabus topics</h3>
     ${barRows(data.topics)}
@@ -207,34 +338,83 @@ function render(data) {
     { earned: 0, possible: 0 });
 
   els.report.innerHTML = `
-    ${summary(data, totals)}
     <h3>Marks by paper</h3>
     ${trend(data.papers)}
-    ${chart(data.papers)}
+    ${chart(data.papers, data.kinds || [])}
+    <div id="day" class="day" hidden></div>
     ${data.subject === "chinese" ? chineseBody(data) : scienceBody(data)}`;
+  fitKindLabels(els.report);
 }
 
 // ---------------------------------------------------------------- wiring
 
-function endpoint(subject, year) {
+function endpoint(subject, paper) {
   const base = subject === "chinese" ? "/api/chinese" : "/api";
-  return year === "all" ? `${base}/progress`
-                        : `${base}/papers/${year}/progress`;
+  return paper === "all" ? `${base}/progress`
+                         : `${base}/papers/${paper}/progress`;
 }
 
+function dayEndpoint(subject, paper, date) {
+  const base = subject === "chinese" ? "/api/chinese" : "/api";
+  return `${base}/papers/${paper}/attempts/${date}`;
+}
+
+// Which bar is open. Cleared whenever the report reloads, because the panel sits
+// inside the report and a subject or year change replaces the chart under it.
+let openBar = null;
+
+function closeDay() {
+  openBar = null;
+  document.querySelectorAll(".cbar.on").forEach((b) => b.classList.remove("on"));
+  const box = document.getElementById("day");
+  if (box) { box.hidden = true; box.innerHTML = ""; }
+}
+
+async function openDay(barEl) {
+  const { date, paper } = barEl.dataset;
+  if (openBar && openBar.date === date && openBar.paper === paper) return closeDay();
+
+  closeDay();
+  openBar = { date, paper };
+  barEl.classList.add("on");
+  const box = document.getElementById("day");
+  box.hidden = false;
+  box.innerHTML = `<p class="empty">Loading…</p>`;
+  try {
+    box.innerHTML = dayPanel(
+      await getJSON(dayEndpoint(els.subject.value, paper, date)));
+  } catch (err) {
+    box.innerHTML = `<p class="empty">Could not load that day: ${esc(err.message)}</p>`;
+  }
+}
+
+// Delegated, because the chart is rebuilt from scratch on every load.
+els.report.addEventListener("click", (event) => {
+  if (event.target.closest(".dclose")) return closeDay();
+  const bar = event.target.closest(".cbar");
+  if (bar) openDay(bar);
+});
+
 async function load() {
+  closeDay();
   els.report.innerHTML = `<p class="empty">Loading…</p>`;
   try {
-    render(await getJSON(endpoint(els.subject.value, els.year.value)));
+    render(await getJSON(endpoint(els.subject.value, els.paper.value)));
   } catch (err) {
     els.report.innerHTML = `<p class="empty">Could not load progress: ${esc(err.message)}</p>`;
   }
 }
 
-function fillYears() {
+function fillPapers() {
   const entry = subjects.find((s) => s.id === els.subject.value);
-  els.year.innerHTML = `<option value="all">All papers</option>` +
-    (entry ? entry.years : []).map((y) => `<option value="${y}">${y}</option>`).join("");
+  // Grouped with <optgroup>, because Science now offers twenty-eight papers and
+  // fourteen of them are the same year as each other. The value is the paper id;
+  // what is shown is the paper's name.
+  const groups = (entry ? entry.groups : []).map((g) => `
+    <optgroup label="${esc(g.group)}">
+      ${g.papers.map((p) => `<option value="${esc(p.paper)}">${esc(p.label)}</option>`).join("")}
+    </optgroup>`).join("");
+  els.paper.innerHTML = `<option value="all">All papers</option>` + groups;
 }
 
 async function init() {
@@ -249,10 +429,10 @@ async function init() {
   // for consistency but do not pretend it is a decision.
   els.subject.disabled = subjects.length === 1;
 
-  els.subject.addEventListener("change", () => { fillYears(); load(); });
-  els.year.addEventListener("change", load);
+  els.subject.addEventListener("change", () => { fillPapers(); load(); });
+  els.paper.addEventListener("change", load);
 
-  fillYears();
+  fillPapers();
   await load();
 }
 

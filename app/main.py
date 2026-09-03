@@ -30,7 +30,9 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import chinese
-from db import by_paper_and_day, init_db, list_attempts, save_attempt
+import papers as paper_ids
+from db import (by_paper_and_day, day_of, init_db, kinds_present, list_attempts,
+                percent, save_attempt)
 from grade import GradingUnavailable, grade
 from stt import transcribe_bytes, model_name
 
@@ -94,40 +96,58 @@ SUBJECTS = [
 ]
 
 
+# The two booklets are two ways of being asked, and the progress report keeps them
+# apart wherever it can: the chart bar is split into them and the rollup underneath
+# is per booklet. One number over both describes neither -- Booklet A is marked
+# against a key and cannot be partly right, Booklet B is marked link by link and
+# usually is -- and a full-marks Booklet A will otherwise hide a weak Booklet B
+# inside the same bar. `short` is what fits inside a chart segment; they are the
+# names the paper itself uses.
+SCIENCE_KINDS = [("mcq", "Booklet A · MCQ", "A"),
+                 ("oeq", "Booklet B · written", "B")]
+
+
+def science_kind(row: dict) -> str:
+    return "mcq" if row["booklet"] == "A" else "oeq"
+
+
 @app.get("/api/subjects")
 def subjects() -> list[dict]:
     """Which subjects have papers indexed, and how each is practised."""
-    years = {
-        "science": sorted(set(indexed_years()) | set(mcq_years())),
-        "chinese": chinese.indexed_years(),
+    science = sorted(set(indexed_papers()) | set(mcq_papers_built()),
+                     key=paper_ids.sort_key)
+    built = {
+        "science": science,
+        # Chinese is one PSLE paper a year and has no prelims, so its ids are
+        # still just years; they are stringified here so both subjects hand the
+        # front end the same kind of thing.
+        "chinese": [str(y) for y in chinese.indexed_years()],
     }
-    return [{**subject, "years": years.get(subject["id"], [])}
-            for subject in SUBJECTS if years.get(subject["id"])]
+    return [{**subject,
+             "papers": [paper_ids.describe(p) for p in built[subject["id"]]],
+             "groups": paper_ids.grouped(built[subject["id"]])}
+            for subject in SUBJECTS if built.get(subject["id"])]
 
 
-def paper_dir(year: int) -> Path:
+def paper_dir(paper: str) -> Path:
     for root in WORK_ROOTS:
-        path = root / str(year)
+        path = root / str(paper)
         if (path / "questions.json").exists():
             return path
-    raise HTTPException(404, f"no indexed paper for {year}")
+    raise HTTPException(404, f"no indexed paper for {paper}")
 
 
-def indexed_years() -> list[int]:
-    """Every year with a question inventory, across both work roots."""
-    years: dict[int, None] = {}
+def indexed_papers() -> list[str]:
+    """Every paper with a Booklet B inventory, across both work roots."""
+    found: dict[str, None] = {}
     for root in WORK_ROOTS:
-        if not root.exists():
-            continue
-        for path in sorted(root.iterdir()):
-            if (path.is_dir() and path.name.isdigit()
-                    and (path / "questions.json").exists()):
-                years.setdefault(int(path.name), None)
-    return sorted(years)
+        for name in paper_ids.discover(root):
+            found.setdefault(name, None)
+    return sorted(found, key=paper_ids.sort_key)
 
 
-def load_questions(year: int) -> dict:
-    return json.loads((paper_dir(year) / "questions.json").read_text())
+def load_questions(paper: str) -> dict:
+    return json.loads((paper_dir(paper) / "questions.json").read_text())
 
 
 @app.on_event("startup")
@@ -138,10 +158,10 @@ def _startup() -> None:
 @app.get("/api/papers")
 def papers() -> list[dict]:
     out = []
-    for year in indexed_years():
-        data = load_questions(year)
+    for paper in indexed_papers():
+        data = load_questions(paper)
         out.append({
-            "year": data["year"],
+            **paper_ids.describe(paper),
             "questions": len(data["questions"]),
             "marks": data["counted_marks"],
             "stated_marks": data["stated_total_marks"],
@@ -150,19 +170,19 @@ def papers() -> list[dict]:
     return out
 
 
-@app.get("/api/papers/{year}/questions")
-def questions(year: int) -> dict:
-    data = load_questions(year)
+@app.get("/api/papers/{paper}/questions")
+def questions(paper: str) -> dict:
+    data = load_questions(paper)
     # Some sub-parts are answered by drawing on the paper. Answering them aloud is
     # not possible, so the UI needs to know before it offers a microphone.
     drawn: set[tuple[int, str | None]] = set()
-    rubric_path = RUBRIC_DIR / f"{year}.json"
+    rubric_path = RUBRIC_DIR / f"{paper}.json"
     if rubric_path.exists():
         for rubric in json.loads(rubric_path.read_text())["rubrics"]:
             if rubric.get("response_mode") == "drawn":
                 drawn.add((rubric["question"], rubric["part"]))
     return {
-        "year": data["year"],
+        **paper_ids.describe(paper),
         "booklet_b": data["booklet_b"],
         "questions": [
             {
@@ -182,21 +202,21 @@ def questions(year: int) -> dict:
     }
 
 
-@app.get("/api/papers/{year}/pages/{page}")
-def page_image(year: int, page: int) -> FileResponse:
-    data = load_questions(year)
+@app.get("/api/papers/{paper}/pages/{page}")
+def page_image(paper: str, page: int) -> FileResponse:
+    data = load_questions(paper)
     booklet_b = data["booklet_b"]
     if not booklet_b["start"] <= page <= booklet_b["end"]:
         # The answer pages live in the same directory; never serve outside Booklet B.
         raise HTTPException(403, "only Booklet B pages are available")
-    path = paper_dir(year) / "pages" / f"page-{page:03d}.png"
+    path = paper_dir(paper) / "pages" / f"page-{page:03d}.png"
     if not path.exists():
         raise HTTPException(404, "page not found")
     return FileResponse(path, media_type="image/png")
 
 
-@app.get("/api/papers/{year}/answers/{question}")
-def answer(year: int, question: int) -> dict:
+@app.get("/api/papers/{paper}/answers/{question}")
+def answer(paper: str, question: int) -> dict:
     """The suggested answer, requested explicitly after an attempt.
 
     Served as text from the rubrics rather than as image crops of the answer page.
@@ -210,7 +230,7 @@ def answer(year: int, question: int) -> dict:
     after the mark: the model answer drives the marking, the explanation drives the
     teaching (CLAUDE.md 1.6).
     """
-    path = RUBRIC_DIR / f"{year}.json"
+    path = RUBRIC_DIR / f"{paper}.json"
     if not path.exists():
         raise HTTPException(404, "no answers extracted for this paper")
     data = json.loads(path.read_text())
@@ -244,54 +264,56 @@ option a question was answered with only comes back once a choice has been sent.
 """
 
 
-def mcq_dir(year: int) -> Path:
-    path = WORK_A / str(year)
+def mcq_dir(paper: str) -> Path:
+    path = WORK_A / str(paper)
     if not (path / "questions.json").exists():
-        raise HTTPException(404, f"no indexed Booklet A for {year}")
+        raise HTTPException(404, f"no indexed Booklet A for {paper}")
     return path
 
 
-def load_mcq(year: int) -> dict:
-    return json.loads((mcq_dir(year) / "questions.json").read_text())
+def load_mcq(paper: str) -> dict:
+    return json.loads((mcq_dir(paper) / "questions.json").read_text())
 
 
-def load_mcq_key(year: int) -> dict:
-    path = WORK_ANS / str(year) / "mcq-answers.json"
+def load_mcq_key(paper: str) -> dict:
+    path = WORK_ANS / str(paper) / "mcq-answers.json"
     if not path.exists():
-        raise HTTPException(404, f"no answer key for {year}; run "
-                                 f"build/extract_mcq_key.py")
+        raise HTTPException(404, f"no answer key for {paper}; run "
+                                 f"build/extract_mcq_key.py (PSLE) or "
+                                 f"build/prelim_key.py (school prelims)")
     return json.loads(path.read_text())
 
 
-def mcq_years() -> list[int]:
-    if not WORK_A.exists():
-        return []
-    return sorted(int(path.name) for path in WORK_A.iterdir()
-                  if path.is_dir() and path.name.isdigit()
-                  and (path / "questions.json").exists())
+def mcq_papers_built() -> list[str]:
+    return paper_ids.discover(WORK_A)
 
 
 @app.get("/api/mcq/papers")
 def mcq_papers() -> list[dict]:
     out = []
-    for year in mcq_years():
-        data = load_mcq(year)
+    for paper in mcq_papers_built():
+        data = load_mcq(paper)
         out.append({
-            "year": year,
+            **paper_ids.describe(paper),
             "questions": len(data["questions"]),
             "marks": data["stated_total_marks"],
+            # Three prelim booklets print no mark total at all, so the value of a
+            # question is assumed rather than read (CLAUDE.md section 1.5). The UI
+            # says so rather than presenting it as the paper's own figure.
+            "marks_source": data.get("marks_source"),
             "needs_review": data["needs_review"],
         })
     return out
 
 
-@app.get("/api/mcq/papers/{year}/questions")
-def mcq_questions(year: int) -> dict:
-    data = load_mcq(year)
+@app.get("/api/mcq/papers/{paper}/questions")
+def mcq_questions(paper: str) -> dict:
+    data = load_mcq(paper)
     marks = data.get("marks_per_question")
     return {
-        "year": year,
+        **paper_ids.describe(paper),
         "booklet_a": data["booklet_a"],
+        "marks_source": data.get("marks_source"),
         "marks_per_question": marks,
         "stated_total_marks": data["stated_total_marks"],
         "questions": [{"question": q["question"], "pages": q["pages"],
@@ -300,20 +322,20 @@ def mcq_questions(year: int) -> dict:
     }
 
 
-@app.get("/api/mcq/papers/{year}/pages/{page}")
-def mcq_page_image(year: int, page: int) -> FileResponse:
-    data = load_mcq(year)
+@app.get("/api/mcq/papers/{paper}/pages/{page}")
+def mcq_page_image(paper: str, page: int) -> FileResponse:
+    data = load_mcq(paper)
     booklet_a = data["booklet_a"]
     if not booklet_a["start"] <= page <= booklet_a["end"]:
         raise HTTPException(403, "only Booklet A pages are available")
-    path = mcq_dir(year) / "pages" / f"page-{page:03d}.png"
+    path = mcq_dir(paper) / "pages" / f"page-{page:03d}.png"
     if not path.exists():
         raise HTTPException(404, "page not found")
     return FileResponse(path, media_type="image/png")
 
 
-@app.post("/api/mcq/papers/{year}/answer/{question}")
-def mcq_answer(year: int, question: int, payload: dict) -> dict:
+@app.post("/api/mcq/papers/{paper}/answer/{question}")
+def mcq_answer(paper: str, question: int, payload: dict) -> dict:
     """Mark one MCQ against the key, and log it.
 
     Logged here rather than on a separate Save click, for the same reason the
@@ -324,17 +346,18 @@ def mcq_answer(year: int, question: int, payload: dict) -> dict:
     if choice not in (1, 2, 3, 4):
         raise HTTPException(400, "choose one of options 1 to 4")
 
-    key = load_mcq_key(year)
+    key = load_mcq_key(paper)
     entry = next((a for a in key["answers"] if a["question"] == question), None)
     if entry is None:
         raise HTTPException(404, f"no answer key for Q{question}")
 
-    marks_total = load_mcq(year).get("marks_per_question") or 0
+    marks_total = load_mcq(paper).get("marks_per_question") or 0
     correct = choice == entry["answer"]
     marks = marks_total if correct else 0
 
     save_attempt({
-        "year": year, "booklet": "A", "question": question, "part": None,
+        "paper": paper, "year": paper_ids.year_of(paper), "booklet": "A",
+        "question": question, "part": None,
         "mode": "mcq", "answer": str(choice),
         "marks": marks, "marks_total": marks_total, "graded": True,
     })
@@ -353,21 +376,21 @@ def mcq_answer(year: int, question: int, payload: dict) -> dict:
     }
 
 
-@app.get("/api/mcq/papers/{year}/score")
-def mcq_score(year: int) -> dict:
+@app.get("/api/mcq/papers/{paper}/score")
+def mcq_score(paper: str) -> dict:
     """Marks earned across Booklet A, best attempt per question."""
-    data = load_mcq(year)
+    data = load_mcq(paper)
     per_question = data.get("marks_per_question") or 0
     slots = [q["question"] for q in data["questions"]]
 
     best: dict[int, int] = {}
-    for row in list_attempts(year=year, booklet="A"):
+    for row in list_attempts(paper=paper, booklet="A"):
         if row["marks"] is None:
             continue
         best[row["question"]] = max(best.get(row["question"], 0), int(row["marks"]))
 
     return {
-        "year": year,
+        **paper_ids.describe(paper),
         "earned": sum(best.get(q, 0) for q in slots),
         "available": per_question * len(slots),
         "attempted": len(best),
@@ -377,7 +400,7 @@ def mcq_score(year: int) -> dict:
 
 @app.post("/api/transcribe")
 async def transcribe(audio: UploadFile = File(...),
-                     year: int | None = Form(None),
+                     paper: str | None = Form(None),
                      question: int | None = Form(None)) -> dict:
     payload = await audio.read()
     if not payload:
@@ -385,8 +408,8 @@ async def transcribe(audio: UploadFile = File(...),
     # Seed recognition with this question's scenario anchors. Without them Whisper
     # renders "plant E" as "Planty", destroying the label the marking gate keys on.
     anchors: list[str] = []
-    if year is not None and question is not None:
-        entry = next((q for q in load_questions(year)["questions"]
+    if paper is not None and question is not None:
+        entry = next((q for q in load_questions(paper)["questions"]
                       if q["question"] == question), None)
         if entry:
             anchors = entry.get("scenario_anchors", [])
@@ -397,21 +420,21 @@ async def transcribe(audio: UploadFile = File(...),
             "model": model_name(), "anchors": anchors}
 
 
-@app.get("/api/papers/{year}/score")
-def paper_score(year: int) -> dict:
+@app.get("/api/papers/{paper}/score")
+def paper_score(paper: str) -> dict:
     """Marks earned across the whole paper, from the attempt log.
 
     Best attempt per sub-part, so re-practising a question improves the total
     rather than dragging it down — the point is what the student can now do.
     """
-    data = load_questions(year)
+    data = load_questions(paper)
     slots = [(q["question"], p["part"], p["marks"] or 0)
              for q in data["questions"] for p in q["parts"]
              if not p.get("is_parent")]
     available = sum(marks for _, _, marks in slots)
 
     best: dict[tuple[int, str | None], int] = {}
-    for row in list_attempts(year=year, booklet="B"):
+    for row in list_attempts(paper=paper, booklet="B"):
         if row["marks"] is None:
             continue
         key = (row["question"], row["part"])
@@ -419,7 +442,7 @@ def paper_score(year: int) -> dict:
 
     earned = sum(best.get((q, part), 0) for q, part, _ in slots)
     return {
-        "year": year,
+        **paper_ids.describe(paper),
         "earned": earned,
         "available": available,
         "attempted": len(best),
@@ -427,10 +450,10 @@ def paper_score(year: int) -> dict:
     }
 
 
-@app.get("/api/papers/{year}/progress")
-def paper_progress(year: int) -> dict:
+@app.get("/api/papers/{paper}/progress")
+def paper_progress(paper: str) -> dict:
     """Progress on one Science paper: marks over time, weak topics, coverage."""
-    return _progress(year)
+    return _progress(paper)
 
 
 @app.get("/api/progress")
@@ -446,14 +469,19 @@ def progress_all() -> dict:
     return _progress(None)
 
 
-def _progress(year: int | None) -> dict:
+def _progress(paper: str | None) -> dict:
     from collections import defaultdict
 
-    years = [year] if year is not None else indexed_years()
+    # The union of both booklets' inventories, not Booklet B's alone: coverage now
+    # counts the MCQs too, and a year indexed for only one of them still belongs in
+    # the report for the half it has.
+    wanted = ([paper] if paper is not None
+              else sorted(set(indexed_papers()) | set(mcq_papers_built()),
+                          key=paper_ids.sort_key))
 
     # Rubric topics/themes keyed by sub-part, so a weak area can be named.
-    meta: dict[tuple[int, int, str | None], dict] = {}
-    for y in years:
+    meta: dict[tuple[str, int, str | None], dict] = {}
+    for y in wanted:
         path = RUBRIC_DIR / f"{y}.json"
         if not path.exists():
             continue
@@ -461,12 +489,12 @@ def _progress(year: int | None) -> dict:
             meta[(y, r["question"], r["part"])] = r
 
     # Two reads of the log, because the report has two halves and they do not want
-    # the same rows. The chart is about the paper, so it counts both booklets -- a
-    # Booklet A morning is marks earned on that paper and belongs on the bar. The
-    # rollups below are keyed to Booklet B's rubrics, and the MCQ log has no chains,
-    # facets or topics in it to roll up.
-    all_rows = [row for y in years
-                for row in list_attempts(year=y, limit=None)]
+    # the same rows. The chart and the booklet rollup are about the paper, so they
+    # count both booklets -- a Booklet A morning is marks earned on that paper and
+    # belongs on the bar. The topic, theme and facet rollups are keyed to Booklet
+    # B's rubrics, and the MCQ log has no chains, facets or topics in it to roll up.
+    all_rows = [row for y in wanted
+                for row in list_attempts(paper=y, limit=None)]
     rows = [row for row in all_rows if row["booklet"] == "B"]
 
     topic_stat: dict[str, dict] = defaultdict(lambda: {"earned": 0, "possible": 0, "attempts": 0})
@@ -481,7 +509,7 @@ def _progress(year: int | None) -> dict:
         if row["gate_passed"] == 0:
             gate_fails += 1
 
-        key = (row["year"], row["question"], row["part"])
+        key = (row["paper"], row["question"], row["part"])
         if key not in best or row["marks"] > best[key]["marks"]:
             best[key] = dict(row)
 
@@ -489,6 +517,17 @@ def _progress(year: int | None) -> dict:
             facet = outcome.get("facet") or "unknown"
             bucket = "hit" if outcome.get("status") == "hit" else "missed"
             facet_stat[facet][bucket] += 1
+
+    # Booklet A's best-per-question, kept in its own map rather than keyed alongside
+    # Booklet B's. The two numberings do not collide today -- B continues A's -- but
+    # that is the paper's convention, not something the report should depend on.
+    mcq_best: dict[tuple[str, int], dict] = {}
+    for row in all_rows:
+        if row["booklet"] != "A" or row["marks"] is None:
+            continue
+        key = (row["paper"], row["question"])
+        if key not in mcq_best or row["marks"] > mcq_best[key]["marks"]:
+            mcq_best[key] = dict(row)
 
     # Topic and theme strength use the best attempt only: the question is what the
     # student can do now, not what they got wrong on the way there.
@@ -514,19 +553,57 @@ def _progress(year: int | None) -> dict:
     # Coverage is a count, not a list. Naming every untouched sub-part turned the
     # bottom of the report into a wall of question numbers that says nothing a
     # number does not -- and reads as a list of failures rather than of work left.
-    slots = untouched = 0
-    for y in years:
-        for q in load_questions(y)["questions"]:
+    #
+    # Counted per booklet, because 28 MCQs and forty-odd written sub-parts are
+    # different work: one combined "still to try" number cannot say which half of
+    # the paper is untouched, which is the only thing it would be read for.
+    oeq_slots = oeq_untouched = 0
+    for y in wanted:
+        data = _indexed(load_questions, y)
+        for q in (data or {}).get("questions", []):
             for part in q["parts"]:
                 if part.get("is_parent"):
                     continue
-                slots += 1
-                untouched += (y, q["question"], part["part"]) not in best
+                oeq_slots += 1
+                oeq_untouched += (y, q["question"], part["part"]) not in best
 
+    mcq_slots = mcq_untouched = 0
+    for y in wanted:
+        data = _indexed(load_mcq, y)
+        for q in (data or {}).get("questions", []):
+            mcq_slots += 1
+            mcq_untouched += (y, q["question"]) not in mcq_best
+
+    # Marks here are the best attempt at each slot tried, against what those slots
+    # were worth -- the same measure as every other bar in the report, and the one
+    # that says what she can do now. Not a share of the whole paper: across
+    # fourteen papers that denominator makes a good morning look like a collapse.
+    labels = {kind_id: label for kind_id, label, _ in SCIENCE_KINDS}
+
+    def booklet(kind_id: str, attempts: dict, slots: int, untouched: int) -> dict:
+        earned = sum(row["marks"] for row in attempts.values())
+        possible = sum(row["marks_total"] or 0 for row in attempts.values())
+        return {"id": kind_id, "name": labels[kind_id], "earned": earned,
+                "possible": possible, "percent": percent(earned, possible),
+                "attempts": len(attempts), "slots": slots, "untouched": untouched}
+
+    booklets = [entry for entry in
+                (booklet("mcq", mcq_best, mcq_slots, mcq_untouched),
+                 booklet("oeq", best, oeq_slots, oeq_untouched))
+                if entry["slots"]]
+
+    papers = by_paper_and_day(all_rows, SCIENCE_KINDS, science_kind)
+    # A bar is labelled with the paper it came from, and for a school prelim that
+    # is the school, not the id and not the year -- fourteen bars reading "2025"
+    # would say nothing about which paper each was.
+    for entry in papers:
+        entry.update(paper_ids.describe(entry["paper"]))
     return {
         "subject": "science",
-        "years": sorted(years),
-        "papers": by_paper_and_day(all_rows),
+        "papers_indexed": [paper_ids.describe(p) for p in wanted],
+        "papers": papers,
+        "kinds": kinds_present(papers, SCIENCE_KINDS),
+        "booklets": booklets,
         "topics": ranked(topic_stat),
         "themes": ranked(theme_stat),
         "facets": [{"name": f, **v,
@@ -534,9 +611,95 @@ def _progress(year: int | None) -> dict:
                                if (v["hit"] + v["missed"]) else 0}
                    for f, v in sorted(facet_stat.items())],
         "gate_failures": gate_fails,
-        "slots": slots,
-        "untouched": untouched,
+        "slots": oeq_slots + mcq_slots,
+        "untouched": oeq_untouched + mcq_untouched,
         "total_attempts": len(all_rows),
+    }
+
+
+def _indexed(load, paper: str) -> dict | None:
+    """The paper's index for one booklet, or None where that booklet is not built.
+
+    The report spans the union of both inventories, so a year present in one and
+    missing from the other must thin the report rather than 404 it.
+    """
+    try:
+        return load(paper)
+    except HTTPException:
+        return None
+
+
+@app.get("/api/papers/{paper}/attempts/{date}")
+def paper_day_attempts(paper: str, date: str) -> dict:
+    """What one bar on the chart is made of: every answer given to one paper on
+    one day, in the order it was given.
+
+    The bar says a morning on the 2021 paper earned 40 of 56. This says which
+    questions those were and what she actually put down -- for Booklet A the
+    option chosen against the option that was right, for Booklet B the answer as
+    submitted and the marks it drew.
+
+    The correct option appears here, and that is not a leak of the kind section
+    2.1 guards against: only questions attempted on that day are returned, and
+    marking an MCQ shows its answer at the time of answering. Nothing here was
+    not already seen.
+
+    Every attempt is listed, not the best one. A second try at a question is the
+    interesting row on this page, and the rollups elsewhere already take the best.
+    """
+    rows = sorted((row for row in list_attempts(paper=paper, limit=None)
+                   if day_of(row) == date), key=lambda row: row["id"])
+
+    # Missing key file: the marks were still logged, so the answers are still
+    # worth showing -- just without the option that was correct beside them.
+    key = _indexed(load_mcq_key, paper) or {}
+    correct_option = {entry["question"]: entry["answer"]
+                      for entry in key.get("answers", [])}
+
+    groups = []
+    for kind_id, name, short in SCIENCE_KINDS:
+        members = [row for row in rows if science_kind(row) == kind_id]
+        if not members:
+            continue
+        earned = sum(row["marks"] or 0 for row in members)
+        possible = sum(row["marks_total"] or 0 for row in members)
+        groups.append({
+            "id": kind_id, "name": name, "short": short,
+            "kind": "choice" if kind_id == "mcq" else "written",
+            "earned": earned, "possible": possible,
+            "percent": percent(earned, possible), "attempts": len(members),
+            "rows": [_attempt_row(row, correct_option) for row in members],
+        })
+
+    return {
+        "subject": "science", **paper_ids.describe(paper), "date": date,
+        "earned": sum(row["marks"] or 0 for row in rows),
+        "possible": sum(row["marks_total"] or 0 for row in rows),
+        "groups": groups,
+    }
+
+
+def _attempt_row(row: dict, correct_option: dict[int, int]) -> dict:
+    """One logged answer, shaped for reading rather than for re-marking."""
+    part = row["part"]
+    marks, total = row["marks"], row["marks_total"]
+    chosen = row["answer"] if row["mode"] == "mcq" else None
+    return {
+        "question": row["question"],
+        "part": part,
+        "label": f"Q{row['question']}" + (f"({part})" if part else ""),
+        "at": row["created_at"],
+        "mode": row["mode"],
+        "chose": chosen,
+        "answer": None if chosen else row["answer"],
+        "correct_option": correct_option.get(row["question"]) if chosen else None,
+        "marks": marks,
+        "marks_total": total,
+        # Full marks, not "not zero": a 1 of 2 on a written answer is neither
+        # right nor wrong, and the UI shows those as marks instead of a verdict.
+        "correct": None if marks is None or not total else marks >= total,
+        "graded": bool(row["graded"]),
+        "gate_passed": row["gate_passed"],
     }
 
 
@@ -546,8 +709,8 @@ def grading_status() -> dict:
     return {"available": bool(os.environ.get("ANTHROPIC_API_KEY"))}
 
 
-@app.post("/api/grade/{year}/{question}")
-def grade_answer(year: int, question: int, payload: dict) -> dict:
+@app.post("/api/grade/{paper}/{question}")
+def grade_answer(paper: str, question: int, payload: dict) -> dict:
     """Mark one sub-part against its rubric.
 
     Grading is optional by design (CLAUDE.md 2.2). When it is unavailable the
@@ -558,7 +721,7 @@ def grade_answer(year: int, question: int, payload: dict) -> dict:
     if not answer:
         raise HTTPException(400, "no answer to mark")
 
-    rubrics = load_rubrics(year)["rubrics"]
+    rubrics = load_rubrics(paper)["rubrics"]
     part = payload.get("part")
     rubric = next((r for r in rubrics
                    if r["question"] == question and r["part"] == part), None)
@@ -584,7 +747,8 @@ def grade_answer(year: int, question: int, payload: dict) -> dict:
                  "chain_id": chain.chain_id, "facet": facet_of.get(link.kp_id)}
                 for chain in result.chains for link in chain.links]
     save_attempt({
-        "year": year, "question": question, "part": part,
+        "paper": paper, "year": paper_ids.year_of(paper),
+        "question": question, "part": part,
         "mode": payload.get("mode", "typed"),
         "answer": answer, "transcript": payload.get("transcript"),
         "marks": result.marks_awarded, "marks_total": result.marks_total,
@@ -597,36 +761,40 @@ def grade_answer(year: int, question: int, payload: dict) -> dict:
 
 @app.post("/api/attempts")
 def create_attempt(payload: dict) -> dict:
-    required = {"year", "question", "part", "answer", "mode"}
+    required = {"paper", "question", "part", "answer", "mode"}
     missing = required - payload.keys()
     if missing:
         raise HTTPException(400, f"missing fields: {sorted(missing)}")
+    # The log keeps both: the paper is the identity, the year is what the
+    # syllabus era is a property of. Callers send the id and the year follows
+    # from it, so the two can never disagree.
+    payload = {**payload, "year": paper_ids.year_of(payload["paper"])}
     return save_attempt(payload)
 
 
 @app.get("/api/attempts")
-def attempts(year: int | None = None, question: int | None = None) -> list[dict]:
-    return list_attempts(year=year, question=question)
+def attempts(paper: str | None = None, question: int | None = None) -> list[dict]:
+    return list_attempts(paper=paper, question=question)
 
 
-def load_rubrics(year: int) -> dict:
-    path = RUBRIC_DIR / f"{year}.json"
+def load_rubrics(paper: str) -> dict:
+    path = RUBRIC_DIR / f"{paper}.json"
     if not path.exists():
-        raise HTTPException(404, f"no rubrics for {year}; run build/rubric.py")
+        raise HTTPException(404, f"no rubrics for {paper}; run build/rubric.py")
     return json.loads(path.read_text())
 
 
-@app.get("/api/review/{year}")
-def review_queue(year: int) -> dict:
+@app.get("/api/review/{paper}")
+def review_queue(paper: str) -> dict:
     """Rubrics to sign off — only authored ones can be reviewed.
 
     Sign-off is read from review/reviewed.json rather than from the rubrics file,
     which only reflects approvals after build/rubric.py re-runs. Reading the
     derived file made a page refresh show completed review as undone.
     """
-    data = load_rubrics(year)
+    data = load_rubrics(paper)
     flags = json.loads(FLAGS_FILE.read_text()) if FLAGS_FILE.exists() else {}
-    decisions = flags.get(str(year), {})
+    decisions = flags.get(str(paper), {})
     # Drawing questions have no chains by design. They still need a human to
     # confirm the classification, so they belong in the queue rather than
     # disappearing from it.
@@ -641,7 +809,7 @@ def review_queue(year: int) -> dict:
             rubric["flag_source"] = decision.get("source", "")
             rubric["flagged_at"] = decision.get("at")
     return {
-        "year": year,
+        **paper_ids.describe(paper),
         "total": len(data["rubrics"]),
         "authored": len(rubrics),
         "flagged": sum(1 for r in rubrics if r.get("flagged")),
@@ -650,8 +818,8 @@ def review_queue(year: int) -> dict:
     }
 
 
-@app.post("/api/flags/{year}")
-def set_flag(year: int, payload: dict) -> dict:
+@app.post("/api/flags/{paper}")
+def set_flag(paper: str, payload: dict) -> dict:
     """Raise or clear a flag on one rubric or model answer.
 
     Rubrics are approved by default, so this file records only the exceptions.
@@ -668,7 +836,7 @@ def set_flag(year: int, payload: dict) -> dict:
 
     FLAGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(FLAGS_FILE.read_text()) if FLAGS_FILE.exists() else {}
-    entries = data.setdefault(str(year), {})
+    entries = data.setdefault(str(paper), {})
 
     if payload.get("flagged", True):
         if not reason:
@@ -684,15 +852,15 @@ def set_flag(year: int, payload: dict) -> dict:
         result = {"key": key, "flagged": False}
 
     if not entries:
-        data.pop(str(year), None)
+        data.pop(str(paper), None)
     FLAGS_FILE.write_text(json.dumps(data, indent=2))
     return result
 
 
-@app.get("/api/flags/{year}")
-def get_flags(year: int) -> dict:
+@app.get("/api/flags/{paper}")
+def get_flags(paper: str) -> dict:
     data = json.loads(FLAGS_FILE.read_text()) if FLAGS_FILE.exists() else {}
-    return {k: v for k, v in data.get(str(year), {}).items() if isinstance(v, dict)}
+    return {k: v for k, v in data.get(str(paper), {}).items() if isinstance(v, dict)}
 
 
 @app.get("/progress", include_in_schema=False)

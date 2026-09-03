@@ -21,6 +21,7 @@ import json
 import sys
 from pathlib import Path
 
+import corpus
 from syllabus import (official_topics, out_of_scope_from_2026, themes_for,
                       unmapped)
 
@@ -36,7 +37,7 @@ SYLLABUS_2023_FROM = 2023
 FLAGS_FILE = REPO / "review" / "flags.json"
 
 
-def flags_for(year: int) -> dict[str, dict]:
+def flags_for(paper: int | str) -> dict[str, dict]:
     """Rubrics flagged as wrong or doubtful.
 
     Rubrics are approved by default and this records the exceptions. The earlier
@@ -49,12 +50,12 @@ def flags_for(year: int) -> dict[str, dict]:
     if not FLAGS_FILE.exists():
         return {}
     data = json.loads(FLAGS_FILE.read_text())
-    entries = data.get(str(year), {})
+    entries = data.get(str(paper), {})
     return {k: v for k, v in entries.items() if isinstance(v, dict)}
 
 
-def rubric_id(year: int, question: int) -> str:
-    return f"{year}_Q{question}"
+def rubric_id(paper: int | str, question: int) -> str:
+    return f"{paper}_Q{question}"
 
 
 def question_anchors(page_anchors: list[str], answer_text: str) -> list[str]:
@@ -83,15 +84,24 @@ def question_anchors(page_anchors: list[str], answer_text: str) -> list[str]:
     return sorted(kept)
 
 
-def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
+def scaffold(paper: int | str, questions_root: Path = WORK_QUESTIONS,
              answers_root: Path = WORK_ANSWERS,
              existing: dict | None = None) -> dict:
+    """Write the parts of a rubric that can be derived, and leave the rest empty.
+
+    Keyed on the paper id rather than the year, because fourteen school prelims
+    share 2025 and each needs its own rubric file. The year survives as what the
+    syllabus era is read from -- that is a property of when the paper was sat,
+    and all fifteen 2025 papers share it.
+    """
     from index_questions import verified_marks
 
-    inventory = json.loads((questions_root / str(year) / "questions.json").read_text())
-    answers = json.loads((answers_root / str(year) / "answers.json").read_text())
-    verified = verified_marks(year)
-    flags = flags_for(year)
+    paper = str(paper)
+    year = corpus.year_of(paper)
+    inventory = json.loads((questions_root / paper / "questions.json").read_text())
+    answers = json.loads((answers_root / paper / "answers.json").read_text())
+    verified = verified_marks(paper)
+    flags = flags_for(paper)
 
     marks: dict[tuple[int, str | None], int | None] = {}
     anchors: dict[int, list[str]] = {}
@@ -124,11 +134,12 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
             if allocation is None:
                 allocation = marks.get((question, None))
             rubrics.append({
-                "question_id": rubric_id(year, question),
+                "question_id": rubric_id(paper, question),
                 "question": question,
                 "part": part["part"],
                 "marks": allocation,
-                "syllabus_era": "2023" if year >= SYLLABUS_2023_FROM else "pre-2023",
+                "syllabus_era": ("2023" if year and year >= SYLLABUS_2023_FROM
+                                 else "pre-2023"),
                 "topics": before.get("topics", []),
                 "themes": themes_for(before.get("topics", [])),
                 "syllabus_topics": official_topics(before.get("topics", [])),
@@ -152,26 +163,31 @@ def scaffold(year: int, questions_root: Path = WORK_QUESTIONS,
             })
 
     return {
+        "paper": paper,
         "year": year,
+        "school": answers.get("school"),
         "source": answers.get("source", "EPH suggested answer"),
-        "ocr": answers.get("ocr"),
+        "ocr": answers.get("ocr") or answers.get("read_from"),
         "rubrics": rubrics,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--years", nargs="*", type=int)
+    parser.add_argument("--papers", nargs="*",
+                        help="paper ids, e.g. 2024 2025-prelim-rosyth")
+    parser.add_argument("--years", nargs="*", type=int,
+                        help="deprecated alias for --papers")
     parser.add_argument("--questions-root", type=Path, default=WORK_QUESTIONS)
     parser.add_argument("--answers-root", type=Path, default=WORK_ANSWERS)
     parser.add_argument("--out", type=Path, default=RUBRIC_DIR)
     args = parser.parse_args(argv)
 
-    years = args.years or sorted(int(p.name) for p in args.answers_root.iterdir()
-                                 if p.is_dir() and p.name.isdigit())
+    papers = (args.papers or [str(y) for y in args.years or []]
+              or corpus.discover(args.answers_root, "answers.json"))
     args.out.mkdir(parents=True, exist_ok=True)
 
-    for year in years:
+    for year in papers:
         target = args.out / f"{year}.json"
         existing = json.loads(target.read_text()) if target.exists() else None
         data = scaffold(year, args.questions_root, args.answers_root, existing)

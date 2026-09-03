@@ -357,6 +357,9 @@ main.single { grid-template-columns: 1fr; }
 
 .prow { display: grid; align-items: center; gap: 10px; padding: 4px 0; font-size: 13.5px;
         grid-template-columns: minmax(140px, 1.3fr) minmax(80px, 2fr) 42px 70px; }
+/* The booklet rows carry both a score and a coverage count, which needs more room
+   at the end than a topic's "12/16" does. */
+.prow.wide { grid-template-columns: minmax(140px, 1.1fr) minmax(80px, 1.6fr) 42px 180px; }
 .pname { color: var(--ink); }
 .pbar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
 .pfill { height: 100%; border-radius: 999px; }
@@ -401,18 +404,45 @@ main.single { grid-template-columns: 1fr; }
 .cbars { display: flex; align-items: flex-end; justify-content: center; gap: 4px;
          height: var(--plot); }
 
+/* A button, because it opens that day's answers. Styled back down to a bar: the
+   affordance is the whole column lifting on hover, not a control's chrome. */
 .cbar { display: flex; flex-direction: column; justify-content: flex-end;
         align-items: center; height: 100%; flex: 1 1 auto;
-        min-width: 22px; max-width: 54px; }
-/* Marks attempted: the full height of the column. */
+        min-width: 22px; max-width: 54px;
+        appearance: none; background: none; border: 0; padding: 0; margin: 0;
+        font: inherit; color: inherit; cursor: pointer; }
+.cbar:hover .ctrack { filter: brightness(0.94); }
+.cbar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px;
+                      border-radius: 6px; }
+.cbar.on .ctrack { box-shadow: 0 0 0 2px var(--accent); }
+.cbar.on .cyear { color: var(--accent); font-weight: 600; }
+
+/* Marks attempted: the full height of the column. Column-reverse so the blocks
+   stack in the order the paper is sat -- first kind at the base. */
 .ctrack { position: relative; width: 100%; min-height: 3px; background: var(--line);
-          border-radius: 5px 5px 0 0; display: flex; flex-direction: column;
-          justify-content: flex-end; }
+          border-radius: 5px 5px 0 0; display: flex; flex-direction: column-reverse;
+          justify-content: flex-start; }
+/* One block per way of answering, each as tall as its share of the sitting's marks
+   and filled with what that half earned. A 1px gap between them so the split is
+   visible even where both halves scored the same. */
+.cseg { position: relative; width: 100%; display: flex; flex-direction: column;
+        justify-content: flex-end; min-height: 2px; }
+.cseg + .cseg { border-bottom: 1px solid var(--panel); }
+/* Column-reverse makes :last-child the block on top -- the only one whose fill
+   should keep the bar's rounded cap. */
+.cseg:not(:last-child) .cfill { border-radius: 0; }
 /* Marks earned, filling it from the bottom. */
 .cfill { width: 100%; border-radius: 5px 5px 0 0; transition: height 0.4s ease; }
 .cfill.weak { background: #c0392b; }
 .cfill.mid { background: #d19a1a; }
 .cfill.strong { background: var(--good); }
+/* Which half of the paper the block is: A/B for Science, 选/写/自 for Chinese.
+   Sits over the block in a chip so it reads on both the fill and the track, and is
+   left off by the chart when the block is too short to hold it. */
+.ckind[hidden] { display: none; }
+.ckind { position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
+         font-size: 10px; line-height: 1.4; padding: 0 4px; border-radius: 4px;
+         background: rgba(255, 255, 255, 0.82); color: var(--ink); font-weight: 600; }
 .cval { position: absolute; top: -17px; left: 0; right: 0; text-align: center;
         font-size: 11.5px; font-weight: 600; color: var(--ink);
         font-variant-numeric: tabular-nums; }
@@ -426,9 +456,67 @@ main.single { grid-template-columns: 1fr; }
 
 .chint { font-size: 12px; color: var(--muted); margin: 10px 0 0;
          display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chint + .chint { margin-top: 2px; }
 .key-fill, .key-track { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .key-fill { background: var(--good); }
 .key-track { background: var(--line); }
+.key-kind { font-size: 10px; font-weight: 600; line-height: 1.4; padding: 0 4px;
+            border-radius: 4px; background: var(--line); color: var(--ink); }
+
+/* -------------------------------------------------- one bar, taken apart
+
+   Opened by clicking a bar, and closed by clicking it again. It sits directly
+   under the chart rather than in a dialog: it is a reading of the bar above it,
+   and it should be possible to look at both at once. */
+.day { border: 1px solid var(--line); background: var(--panel);
+       border-radius: var(--radius); padding: 12px 14px; margin: 14px 0 4px;
+       max-width: 900px; }
+.dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+         padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.dhead strong { font-size: 15px; }
+.dhead span { font-size: 13px; color: var(--muted); }
+.dclose { margin-left: auto; appearance: none; background: none; border: 0;
+          font: inherit; font-size: 13px; color: var(--accent); cursor: pointer;
+          padding: 2px 4px; }
+.dclose:hover { text-decoration: underline; }
+
+.dgroup { margin-top: 12px; }
+.dgroup h4 { font-size: 13.5px; margin: 0 0 8px; }
+.dgroup h4 span { font-weight: 400; color: var(--muted); font-size: 12.5px;
+                  margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+/* Chosen answers: 28 of them fit here without scrolling anything. */
+.dgrid { display: grid; gap: 5px;
+         grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+/* Wide enough for the longest cell -- a wrong answer, which carries the option
+   that was right as well. A cell that wraps makes its whole row taller than the
+   others, and the grid stops reading as one sweep of ticks. */
+.dcell { display: flex; align-items: baseline; gap: 5px; padding: 4px 7px;
+         border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px;
+         background: var(--bg); font-variant-numeric: tabular-nums;
+         white-space: nowrap; }
+.dcell.ok { border-color: #bfe0cc; background: #f1f9f4; }
+.dcell.no { border-color: #eec8c2; background: #fdf3f1; }
+.dcell .dq { font-weight: 600; }
+.dcell .dchose { color: var(--ink); }
+.dcell .dv { margin-left: auto; }
+.dcell.ok .dv { color: var(--good); }
+.dcell.no .dv { color: #c0392b; }
+.dcell .dans { color: var(--muted); font-size: 11.5px; }
+
+/* Written answers: few, long, and the text is the point. */
+.dlist { list-style: none; margin: 0; padding: 0; display: flex;
+         flex-direction: column; gap: 10px; }
+.dline { display: flex; align-items: baseline; gap: 8px; }
+.dline .dq { font-weight: 600; font-size: 13px; }
+.dmark { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.dmark.weak { color: #c0392b; }
+.dmark.mid { color: var(--warn); }
+.dmark.strong { color: var(--good); }
+.dtime { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.dtext { margin: 3px 0 0; font-size: 13.5px; white-space: pre-wrap;
+         padding-left: 10px; border-left: 2px solid var(--line); }
+.dnote { margin: 4px 0 0 10px; font-size: 12.5px; color: var(--warn); }
 
 /* ------------------------------------------------------- booklet A: the MCQs */
 

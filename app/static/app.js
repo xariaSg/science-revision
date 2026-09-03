@@ -1,7 +1,7 @@
 "use strict";
 
 const els = {
-  year: document.getElementById("year"),
+  paper: document.getElementById("paper"),
   question: document.getElementById("question"),
   prev: document.getElementById("prev"),
   next: document.getElementById("next"),
@@ -13,7 +13,8 @@ const els = {
 };
 
 const state = {
-  year: null, questions: [], index: 0, zoom: 100, grading: false,
+  paper: null, paperLabel: "", questions: [], index: 0, zoom: 100,
+  grading: false,
   // Which booklet is being practised. Booklet A is multiple choice and marked
   // against a key; Booklet B is written and marked against a rubric. They share
   // the paper pane, the question picker and the paper total, and almost nothing
@@ -49,7 +50,7 @@ function renderPages() {
   if (!question) return;
   for (const page of question.pages) {
     const img = new Image();
-    img.src = `${apiRoot()}/${state.year}/pages/${page}`;
+    img.src = `${apiRoot()}/${state.paper}/pages/${page}`;
     img.alt = `Page ${page}`;
     img.style.width = `${state.zoom}%`;
     els.pages.append(img);
@@ -146,7 +147,7 @@ function mcqCard(question) {
     check.disabled = true;
     try {
       const res = await fetch(
-        `/api/mcq/papers/${state.year}/answer/${question.question}`, {
+        `/api/mcq/papers/${state.paper}/answer/${question.question}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ choice }),
@@ -247,13 +248,13 @@ function wireMCQKeys() {
 // reload and reflects the best attempt at each sub-part.
 async function refreshScore() {
   const el = document.getElementById("papertotal");
-  if (!el || !state.year) return;
+  if (!el || !state.paper) return;
   try {
-    const s = await getJSON(`${apiRoot()}/${state.year}/score`);
+    const s = await getJSON(`${apiRoot()}/${state.paper}/score`);
     const pct = s.available ? Math.round((s.earned / s.available) * 100) : 0;
     const done = s.slots ? Math.round((s.attempted / s.slots) * 100) : 0;
     el.innerHTML = `
-      <div class="pt-head">${state.year} Booklet ${state.booklet} total</div>
+      <div class="pt-head">${state.paperLabel} Booklet ${state.booklet} total</div>
       <div class="pt-score">${s.earned} <span>/ ${s.available}</span></div>
       <div class="pt-bar"><div class="pt-fill" style="width:${pct}%"></div></div>
       <div class="pt-meta">${s.attempted} of ${s.slots} ${
@@ -310,7 +311,7 @@ function partCard(question, part, index) {
     model.innerHTML = `<h4>Suggested answer</h4><p>Loading…</p>`;
     try {
       const data = await getJSON(
-        `/api/papers/${state.year}/answers/${question.question}`);
+        `/api/papers/${state.paper}/answers/${question.question}`);
       const match = data.parts.find((p) => p.part === part.part)
         || data.parts[index] || null;
       if (!match) {
@@ -357,7 +358,7 @@ function partCard(question, part, index) {
       feedback.innerHTML = `<p class="marking">Marking…</p>`;
       try {
         const res = await fetch(
-          `/api/grade/${state.year}/${question.question}`, {
+          `/api/grade/${state.paper}/${question.question}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ part: part.part, answer }),
@@ -388,7 +389,7 @@ function partCard(question, part, index) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          year: state.year, question: question.question, part: part.part,
+          paper: state.paper, question: question.question, part: part.part,
           mode: rawTranscript ? "voice" : "typed",
           answer, transcript: rawTranscript,
           marks: selfMark, marks_total: part.marks,
@@ -519,7 +520,7 @@ function flagRow(question, part) {
     if (!reason.value.trim()) { reason.focus(); return; }
     saved.textContent = "Sending…";
     try {
-      const res = await fetch(`/api/flags/${state.year}`, {
+      const res = await fetch(`/api/flags/${state.paper}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -588,7 +589,7 @@ function wireRecorder(button, status, box, onTranscript) {
       const form = new FormData();
       form.append("audio", blob, "answer.webm");
       // Anchors bias recognition toward this question's labelled entities.
-      form.append("year", String(state.year));
+      form.append("paper", String(state.paper));
       form.append("question", String(current().question));
       try {
         const res = await fetch("/api/transcribe", { method: "POST", body: form });
@@ -681,9 +682,10 @@ function selectQuestion(index) {
   renderQuestion();
 }
 
-async function loadPaper(year) {
-  state.year = year;
-  const data = await getJSON(`${apiRoot()}/${year}/questions`);
+async function loadPaper(paper) {
+  state.paper = paper;
+  const data = await getJSON(`${apiRoot()}/${paper}/questions`);
+  state.paperLabel = data.label || paper;
   state.questions = data.questions;
   els.question.innerHTML = state.questions
     .map((q, i) => `<option value="${i}">Q${q.question} — ${
@@ -694,18 +696,23 @@ async function loadPaper(year) {
 
 /* -------------------------------------------------------------- booklet swap */
 
-// The years each booklet has indexed need not match, so the picker is rebuilt on
-// every swap. The chosen year is kept when the other booklet also has it, which it
+// The papers each booklet has indexed need not match, so the picker is rebuilt on
+// every swap. The chosen paper is kept when the other booklet also has it, which it
 // normally does — swapping booklets mid-paper is the common case, and being sent
 // back to 2012 for it would be maddening.
-function renderYears() {
+//
+// The option's value is the paper id and its text is the paper's name: fourteen
+// school prelims share 2025, so a list of years would show that year fifteen times
+// and say nothing about which paper each entry was.
+function renderPapers() {
   const papers = state.papers[state.booklet];
-  const wanted = state.year;
-  els.year.innerHTML = papers
-    .map((p) => `<option value="${p.year}">${p.year}</option>`).join("");
-  const keep = papers.some((p) => p.year === wanted) ? wanted : papers[0].year;
-  els.year.value = String(keep);
-  return keep;
+  const wanted = state.paper;
+  els.paper.innerHTML = papers
+    .map((p) => `<option value="${p.paper}">${p.label}</option>`).join("");
+  const found = papers.find((p) => p.paper === wanted) || papers[0];
+  els.paper.value = found.paper;
+  state.paperLabel = found.label;
+  return found.paper;
 }
 
 async function setBooklet(booklet) {
@@ -716,7 +723,7 @@ async function setBooklet(booklet) {
     button.classList.toggle("on", button.dataset.booklet === booklet);
     button.setAttribute("aria-pressed", String(button.dataset.booklet === booklet));
   }
-  await loadPaper(renderYears());
+  await loadPaper(renderPapers());
 }
 
 /* ------------------------------------------------------------------- screens */
@@ -730,7 +737,8 @@ async function setBooklet(booklet) {
 const home = {
   subjects: [],
   subject: null,
-  year: null,
+  group: null,
+  paper: null,
 };
 
 const screens = {
@@ -769,22 +777,54 @@ function renderHome() {
     for (const subject of home.subjects) {
       cards.append(cardButton({
         title: subject.label,
-        meta: `${subject.years.length} papers`,
-        onPick: () => { home.subject = subject; home.year = null; renderHome(); },
+        meta: `${subject.papers.length} papers`,
+        onPick: () => {
+          home.subject = subject;
+          home.group = subject.groups.length === 1 ? subject.groups[0] : null;
+          home.paper = null;
+          renderHome();
+        },
       }));
     }
     return;
   }
 
-  if (!home.year) {
-    hint.textContent = `${home.subject.label} — which year?`;
+  // The group step exists because a year stopped naming a paper: fourteen schools
+  // sat their own 2025 prelim, so Science now has twenty-eight papers and a single
+  // flat list of them would bury the PSLE papers among the schools. Skipped
+  // entirely where a subject has one group, which is every subject but Science —
+  // asking "PSLE or PSLE?" is a step that answers itself.
+  if (!home.group) {
+    hint.textContent = `${home.subject.label} — which papers?`;
     back.hidden = false;
     back.onclick = () => { home.subject = null; renderHome(); };
-    for (const year of [...home.subject.years].reverse()) {
+    for (const group of home.subject.groups) {
       cards.append(cardButton({
-        title: String(year),
+        title: group.group,
+        meta: `${group.papers.length} papers`,
+        onPick: () => { home.group = group; home.paper = null; renderHome(); },
+      }));
+    }
+    return;
+  }
+
+  if (!home.paper) {
+    hint.textContent = `${home.group.group} — which paper?`;
+    back.hidden = false;
+    back.onclick = () => {
+      // Straight back to the subject where the group step was skipped, so Back
+      // never lands on a screen the student was not shown on the way in.
+      home.group = home.subject.groups.length === 1 ? null : home.group;
+      if (home.subject.groups.length === 1) home.subject = null;
+      else home.group = null;
+      renderHome();
+    };
+    for (const paper of home.group.papers) {
+      cards.append(cardButton({
+        title: paper.label,
+        hint: paper.prelim ? `${paper.year} prelim` : "",
         onPick: () => {
-          home.year = year;
+          home.paper = paper;
           // A subject with no modes has nothing left to ask.
           if (home.subject.modes.length) renderHome();
           else openPaper();
@@ -794,19 +834,19 @@ function renderHome() {
     return;
   }
 
-  hint.textContent = `${home.subject.label} ${home.year} — which booklet?`;
+  hint.textContent = `${home.subject.label} ${home.paper.label} — which booklet?`;
   back.hidden = false;
-  back.onclick = () => { home.year = null; renderHome(); };
+  back.onclick = () => { home.paper = null; renderHome(); };
   for (const mode of home.subject.modes) {
     const available = home.subject.id !== "science"
-      || (state.papers[mode.id] || []).some((p) => p.year === home.year);
+      || (state.papers[mode.id] || []).some((p) => p.paper === home.paper.paper);
     const button = cardButton({
       title: mode.label,
       hint: mode.hint,
       onPick: () => openPaper(mode.id),
     });
     button.disabled = !available;
-    if (!available) button.title = `Not indexed for ${home.year}`;
+    if (!available) button.title = `Not indexed for ${home.paper.label}`;
     cards.append(button);
   }
 }
@@ -815,7 +855,7 @@ async function openPaper(mode) {
   if (home.subject.id === "chinese") {
     showScreen("chinese");
     try {
-      await CN.start(home.year);
+      await CN.start(Number(home.paper.paper));
     } catch (err) {
       showScreen("home");
       document.getElementById("homeHint").textContent =
@@ -824,13 +864,14 @@ async function openPaper(mode) {
     return;
   }
   showScreen("science");
-  document.getElementById("sciTitle").textContent = `Science ${home.year}`;
-  state.year = home.year;
+  document.getElementById("sciTitle").textContent = `Science ${home.paper.label}`;
+  state.paper = home.paper.paper;
+  state.paperLabel = home.paper.label;
   await setBooklet(mode);
 }
 
 function goHome() {
-  home.year = null;
+  home.paper = null;
   renderHome();
 }
 
@@ -858,7 +899,7 @@ async function init() {
   }
   home.subjects = subjects;
 
-  els.year.addEventListener("change", () => loadPaper(Number(els.year.value)));
+  els.paper.addEventListener("change", () => loadPaper(els.paper.value));
   els.question.addEventListener("change", () => selectQuestion(Number(els.question.value)));
   for (const button of document.querySelectorAll("[data-booklet]")) {
     button.disabled = !state.papers[button.dataset.booklet].length;
