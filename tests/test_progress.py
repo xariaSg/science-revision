@@ -20,8 +20,11 @@ def kind_of(row):
     return "mcq" if row["booklet"] == "A" else "oeq"
 
 
-def attempt(day, year, booklet, marks, total):
-    return {"created_at": f"{day}T09:00:00+00:00", "year": year,
+def attempt(day, paper, booklet, marks, total):
+    """One logged answer. `paper` is the paper's id, which for a PSLE paper is
+    its year written out and for a school prelim is a slug -- the rollup keys on
+    it rather than on the year because fourteen prelims share 2025."""
+    return {"created_at": f"{day}T09:00:00+00:00", "paper": str(paper),
             "booklet": booklet, "marks": marks, "marks_total": total}
 
 
@@ -32,8 +35,9 @@ def test_bucket_is_one_paper_on_one_day():
         attempt("2026-08-16", 2024, "A", 0, 2),
         attempt("2026-08-17", 2021, "A", 2, 2),
     ], KINDS, kind_of)
-    assert [(p["date"], p["year"], p["earned"]) for p in papers] == [
-        ("2026-08-16", 2021, 2), ("2026-08-16", 2024, 0), ("2026-08-17", 2021, 2)]
+    assert [(p["date"], p["paper"], p["earned"]) for p in papers] == [
+        ("2026-08-16", "2021", 2), ("2026-08-16", "2024", 0),
+        ("2026-08-17", "2021", 2)]
 
 
 def test_split_sums_to_the_bar():

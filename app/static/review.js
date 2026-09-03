@@ -1,7 +1,7 @@
 "use strict";
 
 const els = {
-  year: document.getElementById("year"),
+  paper: document.getElementById("paper"),
   filter: document.getElementById("filter"),
   reload: document.getElementById("reload"),
   queue: document.getElementById("queue"),
@@ -12,7 +12,7 @@ const els = {
 // ones still needing a decision, which is the whole reason to open this page.
 // Rubrics are approved by default, so the interesting list is what has been
 // flagged — not a backlog of things awaiting a decision nobody has reason to make.
-const state = { year: null, filter: "flagged" };
+const state = { paper: null, filter: "flagged" };
 
 const FILTERS = {
   flagged: { label: "Flagged", match: (r) => r.flagged },
@@ -119,7 +119,7 @@ function card(rubric) {
     }
     saved.textContent = "Saving…";
     try {
-      const res = await fetch(`/api/flags/${state.year}`, {
+      const res = await fetch(`/api/flags/${state.paper}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -181,7 +181,7 @@ function renderQueue() {
   els.queue.innerHTML = "";
   if (!visible.length) {
     els.queue.innerHTML = state.filter === "flagged"
-      ? `<p class="empty">Nothing flagged for ${state.year} — every rubric is in ` +
+      ? `<p class="empty">Nothing flagged for ${state.paper} — every rubric is in ` +
         `use. Flag one here, or from the practice app when an answer looks wrong.</p>`
       : `<p class="empty">Nothing here.</p>`;
     return;
@@ -189,14 +189,14 @@ function renderQueue() {
   for (const rubric of visible) els.queue.append(card(rubric));
 }
 
-async function loadYear(year) {
-  state.year = year;
+async function loadPaper(paper) {
+  state.paper = paper;
   els.queue.innerHTML = `<p class="empty">Loading…</p>`;
-  queue = await getJSON(`/api/review/${year}`);
+  queue = await getJSON(`/api/review/${paper}`);
   if (!queue.rubrics.length) {
     els.queue.innerHTML =
-      `<p class="empty">No rubrics have chains yet for ${year}. ` +
-      `Author them in build/authored/${year}.py first.</p>`;
+      `<p class="empty">No rubrics have chains yet for ${paper}. ` +
+      `Author them in build/authored/${paper}.py first.</p>`;
     els.progress.textContent = "";
     return;
   }
@@ -206,15 +206,17 @@ async function loadYear(year) {
 
 async function init() {
   const papers = await getJSON("/api/papers");
-  els.year.innerHTML = papers
-    .map((p) => `<option value="${p.year}">${p.year}</option>`).join("");
-  els.year.addEventListener("change", () => loadYear(Number(els.year.value)));
+  // Value is the paper id, text is its name — the review queue spans the school
+  // prelims too, and fourteen of those share the year 2025.
+  els.paper.innerHTML = papers
+    .map((p) => `<option value="${p.paper}">${p.label}</option>`).join("");
+  els.paper.addEventListener("change", () => loadPaper(els.paper.value));
   els.filter.addEventListener("change", () => {
     state.filter = els.filter.value;
     renderQueue();
   });
-  els.reload.addEventListener("click", () => loadYear(state.year));
-  await loadYear(papers[0].year);
+  els.reload.addEventListener("click", () => loadPaper(state.paper));
+  await loadPaper(papers[0].paper);
 }
 
 init();

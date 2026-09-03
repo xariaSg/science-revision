@@ -27,6 +27,7 @@ import json
 import re
 from pathlib import Path
 
+import corpus
 from ocr_vision import Line, page_lines
 from extract_answers import drop_artefacts, merge_rows
 from segment_answers import page_words
@@ -34,11 +35,38 @@ from segment_answers import page_words
 REPO = Path(__file__).resolve().parent.parent
 WORK_A = REPO / "work-a"
 
-# "For each question from 1 to 28, four options are given." — the paper stating its
-# own range. Present on both eras in this corpus, worded identically.
-RANGE_RE = re.compile(r"for\s+each\s+question\s*s?\s+from\s+(?P<first>\d{1,2})"
-                      r"\s+to\s+(?P<last>\d{1,3})", re.I)
-TOTAL_MARKS_RE = re.compile(r"\((?P<marks>\d{2,3})\s+marks\)", re.I)
+# The paper stating its own range. Every PSLE paper in this corpus words it
+# identically -- "For each question from 1 to 28, four options are given." -- and
+# the school prelims do not: Red Swastika prints "For Questions 1 to 28, choose the
+# most suitable answer" and Raffles Girls hyphenates it on the cover as "For
+# Question 1-28". Both halves of the wording are therefore optional.
+RANGE_RE = re.compile(r"for\s+(?:each\s+)?questions?\s+(?:from\s+)?"
+                      r"(?P<first>\d{1,2})\s*(?:to|[-–—])\s*(?P<last>\d{1,3})\b", re.I)
+# "(56 marks)", and the same thing with a bracket the scan mangled -- Methodist
+# Girls' closes with "]" -- or squared off, as Nanyang's "[56 marks]" is, or bare
+# on a cover line of its own, as Catholic High's and Henry Park's are.
+TOTAL_MARKS_RE = re.compile(r"[(\[{]?\s*(?P<marks>\d{2,3})\s+marks\b", re.I)
+# "Section A (28 x 2 marks)", "Booklet A [28 x 2 marks]", "Section A (28 x 2 = 56
+# marks)". The single most useful statement on the page: it names the question
+# count and the value of each in one place, so their product is a stated total that
+# can be checked against a total stated elsewhere.
+COUNT_TIMES_MARKS_RE = re.compile(r"(?P<count>\d{1,3})\s*[x×]\s*(?P<each>\d)\s*"
+                                  r"(?:marks?\b|=)", re.I)
+# "28 questions", on a cover line of its own (Catholic High, Henry Park, St
+# Nicholas) or inline as Red Swastika's "Booklet A: 28 questions (56 marks)".
+COUNT_QUESTIONS_RE = re.compile(r"(?P<count>\d{1,3})\s+questions\b", re.I)
+# A section or booklet header that also states a mark total. It is the anchor of
+# last resort: Nanyang prints no range statement anywhere, so "Section A: Multiple
+# Choice Questions [56 marks]" is the only thing separating the cover's own
+# numbered instructions from question 1.
+SECTION_HEADER_RE = re.compile(r"(?:section|booklet)\s+A\b.*?\d{1,3}\s*"
+                               r"(?:[x×]\s*\d\s*)?marks", re.I)
+# Booklet A questions are worth 2 marks each on every paper in both corpora --
+# verified against the stated total on all 14 PSLE papers (CLAUDE.md section 1.5),
+# and printed outright as "28 x 2 marks" by five of the prelim schools. Used only
+# to turn a stated total into a question count when the paper states no count at
+# all, and recorded in `structure_source` when it is.
+ASSUMED_MARKS_EACH = 2
 # A question number opening a line: bare, or with a stop the scan may have added.
 QUESTION_RE = re.compile(r"^(?P<question>\d{1,3})\s*[.)]?(?:\s+(?P<rest>\S.*))?$")
 # The same as a standalone token, which is how tesseract returns it.
@@ -49,9 +77,20 @@ OPTION_RE = re.compile(r"[(\[]\s*([1-4])\s*[)\]]")
 # the option block above it.
 FURNITURE_RE = re.compile(r"^\s*(?:\d{1,3}|BLANK\s+PAGE)\s*$|Go\s+on\s+to|"
                           r"\d{4}/0?2\s*\(?A\)?|Singapore\s+Examinations|©", re.I)
-# Fraction of page width within which a question number sits. Options are indented
-# past this on every paper here, so the zone also keeps "(1) ..." out of the run.
-MARKER_ZONE = 0.22
+# Fraction of page width within which a question number sits. There is no single
+# right value: the left margin is not a constant across schools. St Nicholas
+# prints its question numbers at 0.22 of the page width, further in than 2022
+# prints its *options* (0.10), so a zone tight enough to exclude one paper's
+# options loses another paper's questions entirely -- at 0.22 St Nicholas indexed
+# 12 questions of 28 and the missing sixteen left no gap in the sequence to
+# notice. It is set wide and left to be a coarse sieve, because what actually
+# separates a question number from an option is not the indent: an option reads
+# as "(1)" and QUESTION_RE will not match a leading bracket, and anything that
+# slips through still has to survive both the stated range and the increasing-run
+# filter below. Narrowing this afterwards to the margin a paper turned out to use
+# was tried and reverted -- it dropped six correctly-read numbers on 2022 and
+# moved Q28 onto the wrong page.
+MARKER_ZONE = 0.32
 # How far apart a number and the row it belongs to may sit vertically, as a
 # fraction of page height. The two readers box the same row slightly differently.
 ROW_TOLERANCE = 0.012
@@ -147,11 +186,54 @@ def _after_option_block(rows: list[tuple[int, Line]], before: int,
     return None
 
 
+def _first_question_start(rows: list[tuple[int, Line]], anchor: int,
+                          after: int) -> int | None:
+    """Where question 1 begins, given that the front matter ends at `anchor`.
+
+    The first question is the one case the tiers below cannot reach: they place a
+    question between its two neighbours, and question 1 has only one. The anchor
+    is its left-hand bound -- nothing before the paper's own statement of its shape
+    is a question -- which is enough to place it without reading its number.
+
+    Four papers need this, and they need it because the number is genuinely not
+    there to read: Ai Tong, Nanyang and Raffles Girls all lose the "1." and leave
+    the stem starting at the body indent, with nothing to its left.
+
+    The page matters more than the row: a question is recorded as the pages it
+    spans, so an extra row of instruction text swept in from the same page changes
+    nothing, while starting on the wrong page shows the student the wrong scan.
+    So when question 1's options are overleaf of the front matter -- Raffles Girls
+    states its range on the cover and starts the questions on page 2 -- it owns
+    that page from the top, the same rule `_after_option_block` applies to every
+    other question that begins overleaf.
+    """
+    start = anchor + 1
+    while start < after and (not rows[start][1].text.strip()
+                             or FURNITURE_RE.search(rows[start][1].text.strip())):
+        start += 1
+    if start >= after:
+        return None
+
+    seen: set[int] = set()
+    for index in range(start, after):
+        seen.update(int(value) for value in OPTION_RE.findall(rows[index][1].text))
+        if seen >= {1, 2, 3, 4}:
+            if rows[index][0] != rows[start][0]:
+                page = rows[index][0]
+                first = index
+                while first > start and rows[first - 1][0] == page:
+                    first -= 1
+                return first
+            break
+    return start
+
+
 def _recover_positions(rows: list[tuple[int, Line]], manifest: dict,
                        chosen: list[tuple[int, int, int]],
                        loose: list[tuple[int, int, int, int]],
                        expected: tuple[int, int],
-                       margins: list[int]) -> tuple[list[tuple[int, int, int]], list[str]]:
+                       margins: list[int],
+                       anchor: int = 0) -> tuple[list[tuple[int, int, int]], list[str]]:
     """Place the questions neither reader could name, from position alone.
 
     This is where Booklet A is easier than anything in Booklet B: the paper states
@@ -210,15 +292,34 @@ def _recover_positions(rows: list[tuple[int, Line]], manifest: dict,
 
     recovered: list[str] = []
     for run in gap_runs():
-        before, after = placed.get(run[0] - 1), placed.get(run[-1] + 1)
+        # The neighbours bound the band, and where a run reaches the first or last
+        # question of the paper the bound is the front matter or the end of the
+        # paper. Without this the two questions most exposed to a dropped number --
+        # the ones with only one neighbour -- were the two that could never be
+        # recovered: four papers lose Q1 and Henry Park loses Q28.
+        before = placed.get(run[0] - 1, anchor if run[0] == expected[0] else None)
+        after = placed.get(run[-1] + 1,
+                           len(rows) if run[-1] == expected[1] else None)
         if before is None or after is None:
             continue
+        if run[0] == expected[0]:
+            index = _first_question_start(rows, before, after)
+            if index is not None:
+                placed[run[0]] = index
+                recovered.append(f"Q{run[0]}: placed on p{rows[index][0]} as the "
+                                 f"first question after the front matter")
+                if len(run) == 1:
+                    continue
+                run = run[1:]
+                before = index
         if len(run) == 1:
             index = by_position(run[0], before, after)
             if index is not None:
                 placed[run[0]] = index
+                between = (f"between Q{run[0] - 1} and Q{run[0] + 1}"
+                           if run[0] < expected[1] else f"after Q{run[0] - 1}")
                 recovered.append(f"Q{run[0]}: placed on p{rows[index][0]} from its "
-                                 f"position between Q{run[0] - 1} and Q{run[0] + 1}")
+                                 f"position {between}")
                 continue
 
         # Walk the band one option block at a time. A run of two -- 2018 loses both
@@ -243,37 +344,180 @@ def _recover_positions(rows: list[tuple[int, Line]], manifest: dict,
     return merged, recovered
 
 
+# How far into a paper the front matter can reach. Nanyang's section header is on
+# page 3, behind a cover and a blank page; nothing in either corpus is later.
+FRONT_MATTER_PAGES = 6
+
+
+def read_structure(rows: list[tuple[int, Line]]) -> dict:
+    """Everything the paper says about its own shape, with nothing reconciled yet.
+
+    Booklet A states its shape in up to four ways and no school prints all four:
+
+        Section A (28 x 2 marks)          <- count and value together
+        Booklet A: 28 questions (56 marks)
+        For each question from 1 to 28,   <- the range
+                             (56 marks)   <- the total
+
+    Collected as separate claims, each remembering the row it was printed on,
+    because the reconciliation below needs to know how many *independent* printed
+    statements support a count -- not how many regexes happened to fire.
+    """
+    claims: list[dict] = []
+    anchor = 0
+    last_header = None
+
+    for index, (page, line) in enumerate(rows):
+        if page > FRONT_MATTER_PAGES:
+            break
+        text = line.text.strip()
+        claim: dict = {"row": index, "page": page, "text": text, "kinds": []}
+
+        match = RANGE_RE.search(text)
+        if match:
+            first, last = int(match.group("first")), int(match.group("last"))
+            claim.update(first=first, last=last, count=last - first + 1)
+            claim["kinds"].append("range")
+            last_header = index if last_header is None else max(last_header, index)
+
+        match = COUNT_TIMES_MARKS_RE.search(text)
+        if match:
+            count, each = int(match.group("count")), int(match.group("each"))
+            # The one form that states a count and the value of each together, so
+            # their product is a total this row vouches for by itself.
+            claim.setdefault("count", count)
+            claim.update(each=each, total=count * each)
+            claim["kinds"].append("count_x_marks")
+        else:
+            match = COUNT_QUESTIONS_RE.search(text)
+            if match:
+                claim.setdefault("count", int(match.group("count")))
+                claim["kinds"].append("count")
+
+        if "total" not in claim:
+            match = TOTAL_MARKS_RE.search(text)
+            if match:
+                claim["total"] = int(match.group("marks"))
+                claim["kinds"].append("total")
+
+        if SECTION_HEADER_RE.search(text):
+            last_header = index if last_header is None else max(last_header, index)
+
+        # One row is one printed statement, however many of its facts were read
+        # off it. Red Swastika's "Booklet A: 28 questions (56 marks)" states the
+        # count and the total at once, and counting it twice would let a single
+        # line outvote two independent ones.
+        if claim["kinds"]:
+            claims.append(claim)
+
+    # The front matter ends after the last statement the paper made about its own
+    # shape, in whatever form it made it. Anchoring only on a range statement or a
+    # section header leaves Henry Park at row 0 -- the scan drops the leading "F"
+    # of "For each question", and its "Booklet A" heading and its "(56 marks)" are
+    # on separate lines, so neither pattern fires -- which puts the cover's own
+    # numbered instructions back in competition with question 1.
+    rowed = [c["row"] for c in claims] + ([last_header] if last_header else [])
+    if rowed:
+        anchor = max(rowed)
+    return {"claims": claims, "anchor": anchor}
+
+
+def reconcile_structure(structure: dict) -> tuple[tuple[int, int] | None, int | None,
+                                                  int | None, str, list[str]]:
+    """Settle on a question range from claims that may contradict each other.
+
+    Rosyth is why this is not simply "read the range statement": it prints
+    "Booklet A [28 x 2 marks]" and, on the very next line, a range statement whose
+    "28" the scan renders as "23". One of those is a digit inside a sentence and
+    the other is an arithmetic claim, so they are not equally good evidence.
+
+    The tie is broken the way CLAUDE.md section 1.5 already breaks it -- on the
+    invariant that the marks divide evenly. 56 marks over 23 questions is not a
+    whole number of marks per question, and over 28 it is exactly 2, so the range
+    statement is the misread and the paper is 28 questions long. A count claim
+    that cannot divide the total is rejected outright; among those that survive,
+    the one the most separate printed statements support wins.
+
+    Returns (range, stated total, marks each, how it was decided, warnings).
+    """
+    claims = structure["claims"]
+    warnings: list[str] = []
+    if not claims:
+        return None, None, None, "nothing stated", warnings
+
+    totals = [c["total"] for c in claims if c.get("total")]
+    stated_total = max(set(totals), key=totals.count) if totals else None
+    each = next((c["each"] for c in claims if c.get("each")), None)
+
+    counts: dict[int, list[dict]] = {}
+    for claim in claims:
+        if claim.get("count"):
+            counts.setdefault(claim["count"], []).append(claim)
+    each = each or next((c["each"] for c in claims if c.get("each")), None)
+
+    divides = {n: cs for n, cs in counts.items()
+               if stated_total is None or stated_total % n == 0}
+    rejected = sorted(set(counts) - set(divides))
+    if rejected:
+        warnings.append(
+            f"ignored a stated question count of {rejected} — "
+            f"{stated_total} marks does not divide evenly by it; "
+            f"read {sorted(divides) or 'nothing usable'} instead")
+
+    if divides:
+        # Most independent statements first, then the arithmetic form, which states
+        # the count and its value together and so checks itself.
+        def support(number: int) -> tuple[int, int]:
+            cs = divides[number]
+            return len(cs), any("count_x_marks" in c["kinds"] for c in cs)
+        count = max(divides, key=support)
+        source = "+".join(sorted({k for c in divides[count]
+                                  for k in c["kinds"]}))
+    elif stated_total:
+        # No usable count stated anywhere -- Nanyang prints only "[56 marks]". The
+        # per-question value is the one Booklet A constant there is.
+        per = each or ASSUMED_MARKS_EACH
+        if stated_total % per:
+            return None, stated_total, each, "unusable", warnings + [
+                f"{stated_total} marks does not divide by {per} marks per question"]
+        count = stated_total // per
+        source = f"total/{per}" + ("" if each else " (assumed 2 marks each)")
+    else:
+        return None, None, each, "nothing usable", warnings
+
+    first = next((c["first"] for c in claims
+                  if "range" in c["kinds"] and c.get("count") == count), 1)
+    return (first, first + count - 1), stated_total, each, source, warnings
+
+
 def index_paper(work: Path) -> dict:
     manifest = json.loads((work / "manifest.json").read_text())
     year = manifest["year"]
+    paper = manifest.get("paper") or str(year)
 
     rows: list[tuple[int, Line]] = []
     for page in range(1, manifest["num_pages"] + 1):
         rows.extend((page, line) for line in page_rows(work, page))
 
-    expected: tuple[int, int] | None = None
-    stated_marks: int | None = None
-    anchor = 0
-    for index, (page, line) in enumerate(rows):
-        match = RANGE_RE.search(line.text)
-        if match:
-            expected = (int(match.group("first")), int(match.group("last")))
-            # Everything before the statement is front matter -- the cover's own
-            # numbered instructions included. The run starts here.
-            anchor = index
-            break
-    for _, line in rows[anchor:anchor + 12]:
-        marks = TOTAL_MARKS_RE.search(line.text)
-        if marks:
-            stated_marks = int(marks.group("marks"))
-            break
+    # Everything before the last front-matter structure statement is the cover --
+    # its own numbered instructions included. The question run starts there.
+    structure = read_structure(rows)
+    anchor = structure["anchor"]
+    expected, stated_marks, stated_each, structure_source, structure_warnings = \
+        reconcile_structure(structure)
 
     def in_range(number: int) -> bool:
         return not expected or expected[0] <= number <= expected[1]
 
     # Vision reads the number as part of the question's own first row.
     candidates: dict[int, tuple[int, int]] = {}   # row index -> (page, number)
-    for index in range(anchor, len(rows)):
+    # From *after* the anchor, never from the anchor itself. Raffles Girls states
+    # its range inside a numbered cover instruction -- "5. For Question 1-28, use
+    # 2B pencil..." -- so the anchor row reads as a left-margin "5.", and admitting
+    # it made question 5 appear to start on the cover. That collapses the band the
+    # first four questions would have been recovered from, and the paper indexes
+    # from Q5 with no gap in the sequence to notice.
+    for index in range(anchor + 1, len(rows)):
         page, line = rows[index]
         width = manifest["pages"][page - 1]["width"]
         if line.left > width * MARKER_ZONE:
@@ -303,7 +547,7 @@ def index_paper(work: Path) -> dict:
             continue
         index = _row_at(rows, page, top,
                         int(manifest["pages"][page - 1]["height"] * ROW_TOLERANCE))
-        if index is None or index < anchor:
+        if index is None or index <= anchor:
             continue
         if index in candidates and candidates[index][1] != number:
             # The readers disagree about this row. Keep Vision's, which read the
@@ -312,16 +556,19 @@ def index_paper(work: Path) -> dict:
         candidates.setdefault(index, (page, number))
         margins.append(left)
 
-    ordered = sorted(candidates)
-    accepted_index = longest_increasing_run([candidates[i][1] for i in ordered])
-    chosen = [(ordered[i], *candidates[ordered[i]]) for i in sorted(accepted_index)]
+    def longest_run(pool: dict[int, tuple[int, int]]) -> list[tuple[int, int, int]]:
+        ordered = sorted(pool)
+        accepted = longest_increasing_run([pool[i][1] for i in ordered])
+        return [(ordered[i], *pool[ordered[i]]) for i in sorted(accepted)]
+
+    chosen = longest_run(candidates)
     margins.extend(rows[index][1].left for index, _, _ in chosen)
 
-    warnings: list[str] = []
+    warnings: list[str] = list(structure_warnings)
     repairs: list[str] = []
     if expected and margins:
         chosen, recovered = _recover_positions(rows, manifest, chosen, loose,
-                                               expected, margins)
+                                               expected, margins, anchor)
         repairs.extend(recovered)
     questions: dict[int, dict] = {}
     for position, (index, _page, number) in enumerate(chosen):
@@ -349,8 +596,9 @@ def index_paper(work: Path) -> dict:
             warnings.append(f"found {len(numbers)} questions, outside the plausible "
                             f"range {MIN_QUESTIONS}-{MAX_QUESTIONS}")
     if expected is None:
-        warnings.append("no 'For each question from N to M' statement found; the "
-                        "question range is whatever was read, not what the paper says")
+        warnings.append("the paper states neither a question range, a question "
+                        "count nor a mark total; the range is whatever was read, "
+                        "not what the paper says")
 
     # Every Booklet A question offers exactly four options. A question showing
     # fewer has usually had them drawn rather than written -- 2012 Q1's options are
@@ -367,14 +615,33 @@ def index_paper(work: Path) -> dict:
             warnings.append(f"{len(numbers)} questions do not divide the stated "
                             f"{stated_marks} marks evenly")
             marks_each = None
+    marks_source = "stated total / questions found"
+    if marks_each is None and stated_each:
+        # Five schools print "28 x 2 marks", which says the value of a question
+        # outright and does not depend on having found all of them.
+        marks_each, marks_source = stated_each, "stated per question"
+    if marks_each is None:
+        # Nan Hua, Raffles Girls and Red Swastika state no mark total for Booklet A
+        # anywhere in the booklet -- Raffles prints "56" in a score table with no
+        # word "marks" beside it. Every Booklet A question in both corpora is worth
+        # 2 (CLAUDE.md section 1.5), so the mark is recoverable, but it is recorded
+        # as assumed rather than read: a question the app scores 0 for is worse
+        # than one whose provenance is on the record.
+        marks_each, marks_source = ASSUMED_MARKS_EACH, "assumed"
+        warnings.append(f"no mark total is printed in this booklet; assuming "
+                        f"{ASSUMED_MARKS_EACH} marks per question")
 
     return {
+        "paper": paper,
         "year": year,
+        "school": manifest.get("school"),
         "num_pages": manifest["num_pages"],
         "booklet_a": {"start": 1, "end": manifest["num_pages"]},
         "expected_questions": list(expected) if expected else None,
+        "structure_source": structure_source,
         "stated_total_marks": stated_marks,
         "marks_per_question": marks_each,
+        "marks_source": marks_source,
         "questions": [questions[n] for n in numbers],
         "repairs": repairs,
         "warnings": warnings,
@@ -384,22 +651,28 @@ def index_paper(work: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--years", nargs="*", type=int)
+    parser.add_argument("--papers", nargs="*",
+                        help="paper ids to index, e.g. 2024 2025-prelim-rosyth "
+                             "(default: every paper rendered under --work)")
+    parser.add_argument("--years", nargs="*", type=int,
+                        help="deprecated alias for --papers, kept for the PSLE "
+                             "corpus where a year is the paper id")
     parser.add_argument("--work", type=Path, default=WORK_A)
     args = parser.parse_args(argv)
 
-    years = args.years or sorted(int(p.name) for p in args.work.iterdir()
-                                 if p.is_dir() and p.name.isdigit())
+    papers = (args.papers or [str(y) for y in args.years or []]
+              or corpus.discover(args.work, "manifest.json"))
     exit_code = 0
-    for year in years:
-        work = args.work / str(year)
+    for paper in papers:
+        work = args.work / paper
         result = index_paper(work)
         (work / "questions.json").write_text(json.dumps(result, indent=2))
         numbers = [q["question"] for q in result["questions"]]
         span = f"Q{numbers[0]}-Q{numbers[-1]}" if numbers else "none"
-        print(f"{year}: {len(numbers)} questions ({span}), "
+        print(f"{paper}: {len(numbers)} questions ({span}), "
               f"{result['stated_total_marks']} marks, "
-              f"{result['marks_per_question']} each")
+              f"{result['marks_per_question']} each "
+              f"[{result['structure_source']}]")
         for repair in result["repairs"]:
             print(f"    {repair} — check this against the scan")
         for warning in result["warnings"]:

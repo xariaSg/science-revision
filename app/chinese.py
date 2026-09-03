@@ -206,7 +206,8 @@ def answer_choose(year: int, question: int, payload: dict) -> dict:
     marks = marks_total if correct else 0
 
     save_attempt({
-        "subject": SUBJECT, "year": year, "booklet": BOOKLET,
+        "subject": SUBJECT, "paper": str(year), "year": year,
+        "booklet": BOOKLET,
         "question": question, "part": None, "mode": "choose",
         "answer": str(choice), "marks": marks, "marks_total": marks_total,
         "graded": True,
@@ -241,7 +242,8 @@ def answer_written(year: int, question: int, payload: dict) -> dict:
 
     if not rubric["auto_marked"]:
         save_attempt({
-            "subject": SUBJECT, "year": year, "booklet": BOOKLET,
+            "subject": SUBJECT, "paper": str(year), "year": year,
+        "booklet": BOOKLET,
             "question": question, "part": None, "mode": "typed", "answer": text,
             "marks": None, "marks_total": marks_total, "graded": False,
         })
@@ -253,7 +255,8 @@ def answer_written(year: int, question: int, payload: dict) -> dict:
         result = grade(text, rubric)
     except GradingUnavailable as exc:
         save_attempt({
-            "subject": SUBJECT, "year": year, "booklet": BOOKLET,
+            "subject": SUBJECT, "paper": str(year), "year": year,
+        "booklet": BOOKLET,
             "question": question, "part": None, "mode": "typed", "answer": text,
             "marks": None, "marks_total": marks_total, "graded": False,
         })
@@ -261,7 +264,8 @@ def answer_written(year: int, question: int, payload: dict) -> dict:
                 "marks_total": marks_total}
 
     save_attempt({
-        "subject": SUBJECT, "year": year, "booklet": BOOKLET,
+        "subject": SUBJECT, "paper": str(year), "year": year,
+        "booklet": BOOKLET,
         "question": question, "part": None, "mode": "typed", "answer": text,
         "marks": result.marks, "marks_total": result.marks_total, "graded": True,
         "outcomes": result.verdicts,
@@ -305,7 +309,8 @@ def self_mark(year: int, question: int, payload: dict) -> dict:
         raise HTTPException(400, f"award between 0 and {marks_total} marks")
 
     save_attempt({
-        "subject": SUBJECT, "year": year, "booklet": BOOKLET,
+        "subject": SUBJECT, "paper": str(year), "year": year,
+        "booklet": BOOKLET,
         "question": question, "part": None, "mode": "typed",
         "answer": (payload.get("answer") or "").strip() or "(self-marked)",
         "marks": int(marks), "marks_total": marks_total, "graded": False,
@@ -345,7 +350,7 @@ def _attempts(year: int | None) -> list[dict]:
     """
     years = [year] if year is not None else indexed_years()
     return [row for y in years
-            for row in list_attempts(year=y, booklet=BOOKLET, subject=SUBJECT,
+            for row in list_attempts(paper=str(y), booklet=BOOKLET, subject=SUBJECT,
                                      limit=None)]
 
 
@@ -514,6 +519,11 @@ def _progress(year: int | None) -> dict:
 
     papers = by_paper_and_day(
         rows, CN_KINDS, lambda row: mode_of.get((row["year"], row["question"])))
+    # The chart labels a bar with the paper it came from. A Chinese paper is
+    # named by its year, so the label is the id; Science has to look its up
+    # because a school prelim's id is not its name.
+    for entry in papers:
+        entry["label"] = entry["paper"]
     return {
         "subject": "chinese",
         "years": sorted(years),

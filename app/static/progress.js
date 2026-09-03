@@ -11,7 +11,7 @@
 
 const els = {
   subject: document.getElementById("subject"),
-  year: document.getElementById("year"),
+  paper: document.getElementById("paper"),
   report: document.getElementById("report"),
 };
 
@@ -104,18 +104,18 @@ function bar(paper, max) {
   // A paper with no split — an older attempt, or a subject that does not declare
   // one — draws as a single block, which is what the chart did before the split.
   const parts = paper.parts && paper.parts.length ? paper.parts
-    : [{ id: "all", name: `${paper.year} paper`, short: "", earned: paper.earned,
+    : [{ id: "all", name: `${paper.label} paper`, short: "", earned: paper.earned,
          possible: paper.possible, percent: paper.percent, attempts: paper.attempts }];
   return `
     <button type="button" class="cbar" data-date="${esc(paper.date)}"
-            data-year="${paper.year}"
-            aria-label="${esc(paper.date)}, ${paper.year} paper, ${paper.earned} of
+            data-paper="${esc(paper.paper)}"
+            aria-label="${esc(paper.date)}, ${esc(paper.label)} paper, ${paper.earned} of
                         ${paper.possible} marks. Show the answers.">
       <span class="ctrack" style="height:${(paper.possible / max) * 100}%">
         ${parts.map((part) => segment(part, paper)).join("")}
         <span class="cval">${paper.earned}</span>
       </span>
-      <span class="cyear">${paper.year}</span>
+      <span class="cyear">${esc(paper.label)}</span>
     </button>`;
 }
 
@@ -223,7 +223,7 @@ function dayPanel(data) {
   }
   return `
     <div class="dhead">
-      <strong>${shortDate(data.date)} · ${data.year} paper</strong>
+      <strong>${shortDate(data.date)} · ${esc(data.label)} paper</strong>
       <span>${data.earned} of ${data.possible} marks</span>
       <button type="button" class="dclose">Close</button>
     </div>
@@ -338,7 +338,6 @@ function render(data) {
     { earned: 0, possible: 0 });
 
   els.report.innerHTML = `
-    ${summary(data, totals)}
     <h3>Marks by paper</h3>
     ${trend(data.papers)}
     ${chart(data.papers, data.kinds || [])}
@@ -349,15 +348,15 @@ function render(data) {
 
 // ---------------------------------------------------------------- wiring
 
-function endpoint(subject, year) {
+function endpoint(subject, paper) {
   const base = subject === "chinese" ? "/api/chinese" : "/api";
-  return year === "all" ? `${base}/progress`
-                        : `${base}/papers/${year}/progress`;
+  return paper === "all" ? `${base}/progress`
+                         : `${base}/papers/${paper}/progress`;
 }
 
-function dayEndpoint(subject, year, date) {
+function dayEndpoint(subject, paper, date) {
   const base = subject === "chinese" ? "/api/chinese" : "/api";
-  return `${base}/papers/${year}/attempts/${date}`;
+  return `${base}/papers/${paper}/attempts/${date}`;
 }
 
 // Which bar is open. Cleared whenever the report reloads, because the panel sits
@@ -372,18 +371,18 @@ function closeDay() {
 }
 
 async function openDay(barEl) {
-  const { date, year } = barEl.dataset;
-  if (openBar && openBar.date === date && openBar.year === year) return closeDay();
+  const { date, paper } = barEl.dataset;
+  if (openBar && openBar.date === date && openBar.paper === paper) return closeDay();
 
   closeDay();
-  openBar = { date, year };
+  openBar = { date, paper };
   barEl.classList.add("on");
   const box = document.getElementById("day");
   box.hidden = false;
   box.innerHTML = `<p class="empty">Loading…</p>`;
   try {
     box.innerHTML = dayPanel(
-      await getJSON(dayEndpoint(els.subject.value, year, date)));
+      await getJSON(dayEndpoint(els.subject.value, paper, date)));
   } catch (err) {
     box.innerHTML = `<p class="empty">Could not load that day: ${esc(err.message)}</p>`;
   }
@@ -400,16 +399,22 @@ async function load() {
   closeDay();
   els.report.innerHTML = `<p class="empty">Loading…</p>`;
   try {
-    render(await getJSON(endpoint(els.subject.value, els.year.value)));
+    render(await getJSON(endpoint(els.subject.value, els.paper.value)));
   } catch (err) {
     els.report.innerHTML = `<p class="empty">Could not load progress: ${esc(err.message)}</p>`;
   }
 }
 
-function fillYears() {
+function fillPapers() {
   const entry = subjects.find((s) => s.id === els.subject.value);
-  els.year.innerHTML = `<option value="all">All papers</option>` +
-    (entry ? entry.years : []).map((y) => `<option value="${y}">${y}</option>`).join("");
+  // Grouped with <optgroup>, because Science now offers twenty-eight papers and
+  // fourteen of them are the same year as each other. The value is the paper id;
+  // what is shown is the paper's name.
+  const groups = (entry ? entry.groups : []).map((g) => `
+    <optgroup label="${esc(g.group)}">
+      ${g.papers.map((p) => `<option value="${esc(p.paper)}">${esc(p.label)}</option>`).join("")}
+    </optgroup>`).join("");
+  els.paper.innerHTML = `<option value="all">All papers</option>` + groups;
 }
 
 async function init() {
@@ -424,10 +429,10 @@ async function init() {
   // for consistency but do not pretend it is a decision.
   els.subject.disabled = subjects.length === 1;
 
-  els.subject.addEventListener("change", () => { fillYears(); load(); });
-  els.year.addEventListener("change", load);
+  els.subject.addEventListener("change", () => { fillPapers(); load(); });
+  els.paper.addEventListener("change", load);
 
-  fillYears();
+  fillPapers();
   await load();
 }
 

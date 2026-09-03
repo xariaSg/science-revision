@@ -30,6 +30,10 @@ from pathlib import Path
 import pytesseract
 from PIL import Image
 
+import corpus
+from detect_boundaries import ocr_page
+from index_mcq import longest_increasing_run
+from ocr_vision import page_lines as vision_lines
 from segment_answers import (MARGIN_BOTTOM, MARGIN_TOP, expected_question_range,
                              group_lines, page_words)
 
@@ -41,6 +45,13 @@ WORK_DIR = REPO / "work"
 MARKER_ZONE = 0.25
 # How many leading tokens may precede a sub-part label ("34 = (a) Name the...").
 MARKER_LOOKAHEAD = 3
+# How far past the start of its own line a sub-part label may sit, as a fraction
+# of page width. Measured from the line rather than from the page edge, because
+# the left margin is not a constant: St Nicholas sets Booklet B at 547px where
+# 2024 sets it at 300, so its "29, (a) State all the conditions..." puts the (a)
+# beyond an absolute cut-off that every PSLE paper clears easily. Its whole
+# booklet indexed as thirteen questions with one part between them.
+SUBPART_REACH = 0.10
 
 # The trailing separator is optional: the full papers OCR the number bare ("37"),
 # while the Booklet B extracts render it with a stop ("37."). Requiring bare digits
@@ -50,6 +61,12 @@ QUESTION_RE = re.compile(r"^(\d{1,2})\s*[.,]?$")
 SUBPART_RE = re.compile(r"^\(?\s*(i{1,3}|iv|v|[a-h])\s*\)$", re.I)
 ROMAN_PARTS = {"i", "ii", "iii", "iv", "v"}
 MARKS_RE = re.compile(r"\[\s*(\d)\s*]")
+# Red Swastika writes the allocation into the sentence -- "...state one
+# characteristic that helped you to classify each animal. (2m)" -- instead of
+# right-aligning it in square brackets. It is the same fact and the only form that
+# paper prints, so a reader that knows only brackets scores its whole Booklet B at
+# nought marks, which is what happened.
+INLINE_MARKS_RE = re.compile(r"\(\s*(\d)\s*m\s*\)", re.I)
 # A mark allocation the main pass could not read. Tesseract mangles these small
 # right-margin tokens badly -- 2024 Q29(a)'s "[2]" comes back as "{?]" -- so a token
 # that merely looks bracket-shaped is worth a second, narrower look.
@@ -59,8 +76,15 @@ MARK_CANDIDATE_RE = re.compile(r"^[\[{(<|][^a-z]{0,3}[]})>|]$", re.I)
 RIGHT_MARGIN = 0.80
 MARK_PAD = 14
 MIN_MARKS, MAX_MARKS = 1, 3
-# Booklet B states its own total on its first page: "(44 marks)".
-TOTAL_MARKS_RE = re.compile(r"\((\d{2})\s+marks\)", re.I)
+# Booklet B states its own total on its first page. The PSLE papers print it as
+# "(44 marks)"; the school prelims print it eight ways between them -- "Section B:
+# 44 marks", "SECTION B: 44 Marks", "Section B [44 marks]", "Section B (44 marks)",
+# and bare on a cover line. Preferring the form that names the section is what
+# keeps a cover listing *both* booklets' totals from handing back Booklet A's.
+SECTION_TOTAL_RE = re.compile(r"(?:section|booklet)\s*B\b[^\n]{0,40}?(\d{2})\s*marks",
+                              re.I)
+BRACKETED_TOTAL_RE = re.compile(r"[(\[]\s*(\d{2})\s+marks\s*[)\]]", re.I)
+TOTAL_MARKS_RE = re.compile(r"\b(\d{2})\s+marks\b", re.I)
 
 # Scenario anchors: the labelled entities a question is *about* ("plant E", "tube A").
 # The marking gate keys on them (CLAUDE.md section 3.3), and speech-to-text needs them
@@ -106,16 +130,126 @@ def reread_mark(img, word) -> int | None:
 
 
 def stated_total_marks(work: Path, bounds: dict) -> int | None:
+    """Booklet B's own mark total, in whichever of its forms this paper printed.
+
+    Tried most specific first. A form that names the section is trusted over a
+    bracketed number, and that over a bare one, because several prelim covers
+    print Booklet A's total beside Booklet B's and the looser patterns cannot
+    tell the two apart.
+    """
     booklet_b = bounds["booklet_b"]
-    for page in range(booklet_b["start"], min(booklet_b["start"] + 3,
-                                              booklet_b["end"] + 1)):
-        cached = work / "ocr" / f"page-{page:03d}.txt"
-        if not cached.exists():
-            continue
-        match = TOTAL_MARKS_RE.search(re.sub(r"\s+", " ", cached.read_text()))
-        if match:
-            return int(match.group(1))
+    pages = [work / "ocr" / f"page-{page:03d}.txt"
+             for page in range(booklet_b["start"],
+                               min(booklet_b["start"] + 3, booklet_b["end"] + 1))]
+    texts = [re.sub(r"\s+", " ", path.read_text())
+             for path in pages if path.exists()]
+    for pattern in (SECTION_TOTAL_RE, BRACKETED_TOTAL_RE, TOTAL_MARKS_RE):
+        for text in texts:
+            match = pattern.search(text)
+            if match:
+                return int(match.group(1))
     return None
+
+
+def mark_values(text: str) -> list[int]:
+    """Every mark allocation on a line, in either of the forms papers print."""
+    found = MARKS_RE.findall(text) + INLINE_MARKS_RE.findall(text)
+    return [int(v) for v in found if MIN_MARKS <= int(v) <= MAX_MARKS]
+
+
+# A question number as Vision returns it. Either form: joined to the start of the
+# question's own text, or standing alone. Both occur in the same paper -- Tao Nan
+# sets its numbers in the left margin a little above the stem they belong to, so
+# Vision returns "31." by itself while tesseract, grouping words into rows, hands
+# back the number and the stem together.
+VISION_QUESTION_RE = re.compile(r"^(\d{1,2})\s*[.,)]?(?:\s+\S|$)")
+# How far apart a Vision line and the tesseract line it corresponds to may sit,
+# as a fraction of page height. The two readers box the same row differently.
+ROW_TOLERANCE = 0.012
+
+
+def vision_candidates(work: Path, page: int, lines: list[list], width: int,
+                      height: int,
+                      expected: tuple[int, int]) -> list[tuple[int, int, int]]:
+    """Question numbers read by Vision, mapped onto tesseract's line indices.
+
+    Booklet A needs two readers because they drop different numbers (CLAUDE.md
+    section 1.5.1), and Booklet B turns out to need it for the same reason -- Tao
+    Nan's "32." comes back from tesseract as "82", and its "30." not at all, which
+    between them broke the consecutive run that everything downstream hangs on.
+
+    Vision returns the number joined to the question's first line rather than as a
+    standalone token, so its reading is matched to a tesseract line by position.
+    The geometry stays tesseract's: it is the reader with word boxes, and sub-part
+    labels and mark allocations are found by where words sit on the line.
+
+    Confined to the range the paper states it covers, and not used at all when it
+    states none. "Any line that opens with a digit" describes a great deal of a
+    science paper -- readings off a scale, years, quantities -- and admitting all
+    of it cost more than the dropped numbers did: on Tao Nan it displaced Q29 and
+    left the booklet indexed as six questions numbered from 6.
+    """
+    image = work / "pages" / f"page-{page:03d}.png"
+    if not image.exists():
+        return []
+    tolerance = height * ROW_TOLERANCE
+    centres = [(sum(w.cy for w in line) / len(line), index)
+               for index, line in enumerate(lines)]
+
+    out: list[tuple[int, int, int]] = []
+    for line in vision_lines(image):
+        if line.left > width * MARKER_ZONE:
+            continue
+        match = VISION_QUESTION_RE.match(line.text.strip())
+        if not match or not expected[0] <= int(match.group(1)) <= expected[1]:
+            continue
+        nearest = min(centres, key=lambda c: abs(c[0] - line.cy), default=None)
+        if nearest and abs(nearest[0] - line.cy) <= tolerance:
+            out.append((page, nearest[1], int(match.group(1))))
+    return out
+
+
+def fill_question_gaps(candidates: list[tuple[int, int, int]],
+                       accepted: dict[tuple[int, int], int],
+                       expected: tuple[int, int] | None,
+                       order: list[tuple[int, int]]) -> list[str]:
+    """Place questions the consecutive run skipped, from position alone.
+
+    `choose_question_run` demands each number be the previous plus one, which is
+    what keeps body text out of the run -- and it means one dropped number ends
+    the run there, losing every question after it. Where the paper states its own
+    range, a missing number is not in doubt; only where it starts is. So a
+    candidate carrying exactly that number, sitting between the lines its two
+    neighbours were placed on, settles it.
+
+    Refuses whenever the band holds more than one candidate for the number, so an
+    ambiguous stretch is left as a gap for a person rather than guessed at.
+    """
+    if not expected or not accepted:
+        return []
+    position = {key: index for index, key in enumerate(order)}
+    placed = {number: position[key] for key, number in accepted.items()
+              if key in position}
+    notes: list[str] = []
+
+    for number in range(expected[0], expected[1] + 1):
+        if number in placed:
+            continue
+        before, after = placed.get(number - 1), placed.get(number + 1)
+        if before is None or after is None or after <= before:
+            continue
+        found = {position[(page, index)]
+                 for page, index, value in candidates
+                 if value == number and (page, index) in position
+                 and before < position[(page, index)] < after}
+        if len(found) != 1:
+            continue
+        slot = found.pop()
+        placed[number] = slot
+        accepted[order[slot]] = number
+        notes.append(f"Q{number}: placed on p{order[slot][0]} from its position "
+                     f"between Q{number - 1} and Q{number + 1}")
+    return notes
 
 
 def choose_question_run(candidates: list[tuple[int, int, int]],
@@ -131,6 +265,22 @@ def choose_question_run(candidates: list[tuple[int, int, int]],
     "50 times") does not. So take the longest run, preferring one that starts where
     Booklet B says it should when that is known.
     """
+    if expected:
+        # Inside a stated range the numbering is dense and the candidates have
+        # already been held to it, so a gap is a dropped number rather than a
+        # reason to stop. Demanding each be the previous plus one ends the run at
+        # the first dropout and throws away every question after it -- Tao Nan
+        # loses its "30." entirely and indexed as Q37-Q41, five questions of
+        # thirteen, with the first eight vanishing without trace. Taking the
+        # longest increasing run instead keeps them and leaves the gap visible,
+        # which is what fill_question_gaps and the coverage warning then act on.
+        # This is the same discipline index_mcq.py applies to Booklet A.
+        in_range = [c for c in candidates if expected[0] <= c[2] <= expected[1]]
+        chosen = longest_increasing_run([c[2] for c in in_range])
+        if chosen:
+            return {(in_range[i][0], in_range[i][1]): in_range[i][2]
+                    for i in sorted(chosen)}
+
     def longest_from(start_value: int | None) -> list[tuple[int, int, int]]:
         best: list[tuple[int, int, int]] = []
         for i, candidate in enumerate(candidates):
@@ -156,7 +306,7 @@ def choose_question_run(candidates: list[tuple[int, int, int]],
 REVIEW_MARKS = REPO / "review" / "marks.json"
 
 
-def verified_marks(year: int) -> dict[str, int]:
+def verified_marks(paper: int | str) -> dict[str, int]:
     """Human-verified mark allocations for a paper, keyed "29a" / "30b(i)".
 
     Some allocations are simply not readable: 2024 Q29(a) is printed as a damaged
@@ -166,14 +316,26 @@ def verified_marks(year: int) -> dict[str, int]:
     if not REVIEW_MARKS.exists():
         return {}
     data = json.loads(REVIEW_MARKS.read_text())
-    return {k: v for k, v in data.get(str(year), {}).items() if isinstance(v, int)}
+    return {k: v for k, v in data.get(str(paper), {}).items() if isinstance(v, int)}
 
 
 def index_paper(work: Path) -> dict:
     bounds = json.loads((work / "boundaries.json").read_text())
     booklet_b = bounds["booklet_b"]
+    paper = bounds.get("paper") or str(bounds["year"])
+
+    # The PSLE papers arrive here with a page-text cache already written, as a side
+    # effect of detecting their booklet boundaries. The school prelims are supplied
+    # pre-split so nothing detects anything on them, and without the cache the two
+    # things Booklet B states about itself -- its question range and its mark total
+    # -- are read as "not stated" rather than as "not looked for". Both are silent
+    # failures: the range is what makes coverage checkable, and the total is what
+    # catches a missed allocation.
+    for page in range(booklet_b["start"], booklet_b["end"] + 1):
+        ocr_page(work, page)
+
     expected = expected_question_range(work, bounds)
-    verified = verified_marks(bounds["year"])
+    verified = verified_marks(paper)
 
     questions: dict[int, dict] = {}
     warnings: list[str] = []
@@ -183,6 +345,7 @@ def index_paper(work: Path) -> dict:
 
     # Pass 1: read every page once, and collect left-margin number candidates.
     pages: dict[int, tuple[list[list], int]] = {}
+    page_heights: dict[int, int] = {}
     candidates: list[tuple[int, int, int]] = []
     for page in range(booklet_b["start"], booklet_b["end"] + 1):
         words, width, height = page_words(work, page)
@@ -192,6 +355,7 @@ def index_paper(work: Path) -> dict:
             continue
         lines = group_lines(words)
         pages[page] = (lines, width)
+        page_heights[page] = height
         for index, line in enumerate(lines):
             head = line[0]
             if head.left > width * MARKER_ZONE:
@@ -200,9 +364,33 @@ def index_paper(work: Path) -> dict:
             if match:
                 candidates.append((page, index, int(match.group(1))))
 
+    # A second reader over the same pages. Where the two disagree about a line,
+    # Vision's reading wins: it read the number in the context of the question's
+    # own text, where tesseract read it alone and returned "82" for Tao Nan's 32.
+    from_vision: dict[tuple[int, int], int] = {}
+    if expected:
+        for page, (lines, width) in pages.items():
+            for entry in vision_candidates(work, page, lines, width,
+                                           page_heights[page], expected):
+                from_vision[(entry[0], entry[1])] = entry[2]
+        # Where both readers named the same line, Vision's number wins; where only
+        # one did, that one stands. Both are held to the stated range, so a value
+        # outside it is dropped rather than allowed to anchor a run.
+        merged = {(page, index): number for page, index, number in candidates
+                  if expected[0] <= number <= expected[1]}
+        merged.update(from_vision)
+        candidates = sorted((page, index, number)
+                            for (page, index), number in merged.items())
+
+    # Reading order across the whole booklet, so a question can be placed by
+    # where it sits between its neighbours rather than by its own digits.
+    order = [(page, index) for page in sorted(pages)
+             for index in range(len(pages[page][0]))]
+
     accepted = choose_question_run(candidates, expected)
 
     repairs: list[str] = []
+    repairs.extend(fill_question_gaps(candidates, accepted, expected, order))
     for page, (lines, width) in pages.items():
         marker_limit = width * MARKER_ZONE
         page_image = None
@@ -226,8 +414,9 @@ def index_paper(work: Path) -> dict:
             if page not in entry["pages"]:
                 entry["pages"].append(page)
 
+            subpart_limit = max(marker_limit, head.left + width * SUBPART_REACH)
             for token in line[consumed:consumed + MARKER_LOOKAHEAD]:
-                if token.left > marker_limit:
+                if token.left > subpart_limit:
                     break
                 match = SUBPART_RE.match(token.text)
                 if not match:
@@ -245,8 +434,7 @@ def index_paper(work: Path) -> dict:
                                            "page": page, "marks_source": None})
                 break
 
-            values = [int(v) for v in MARKS_RE.findall(text)
-                      if MIN_MARKS <= int(v) <= MAX_MARKS]
+            values = mark_values(text)
             repaired = False
             if not values:
                 # Nothing parsed cleanly; retry any bracket-shaped token sitting in
@@ -326,25 +514,43 @@ def index_paper(work: Path) -> dict:
         shortfall = stated - counted
         unknown = [(q, p) for q in questions.values() for p in q["parts"]
                    if p["marks"] is None and not p.get("is_parent")]
-        # With a single unread allocation the stated total determines it outright.
-        # With several it does not, so leave them for review rather than guessing.
+        # Two arrangements of unread allocations are settled by arithmetic rather
+        # than by guesswork, and both are worth taking because the alternative is
+        # an answer box the student cannot score:
+        #
+        #   * one unread allocation -- the stated total names it outright;
+        #   * as many marks missing as there are unread allocations -- every
+        #     allocation is worth at least one mark, so each is exactly one.
+        #
+        # Ai Tong is the second case: three sub-parts unread and three marks
+        # short. Anything else genuinely is underdetermined and is left alone.
+        determined: list[tuple[dict, dict, int]] = []
         if len(unknown) == 1 and MIN_MARKS <= shortfall <= MAX_MARKS:
-            entry, part = unknown[0]
-            part["marks"] = shortfall
-            part["marks_source"] = "inferred_from_total"
-            entry["total_marks"] += shortfall
-            counted += shortfall
-            warnings = [w for w in warnings
-                        if not w.startswith(f"Q{entry['question']}({part['part']}):")]
-            repairs.append(f"Q{entry['question']}({part['part']}): inferred [{shortfall}] "
-                           f"as the only allocation missing from the stated {stated}")
+            determined = [(unknown[0][0], unknown[0][1], shortfall)]
+            reason = f"the only allocation missing from the stated {stated}"
+        elif unknown and shortfall == len(unknown) * MIN_MARKS:
+            determined = [(entry, part, MIN_MARKS) for entry, part in unknown]
+            reason = (f"{len(unknown)} allocations unread and {shortfall} marks "
+                      f"short of the stated {stated}, so each is the minimum")
+        if determined:
+            for entry, part, marks in determined:
+                part["marks"] = marks
+                part["marks_source"] = "inferred_from_total"
+                entry["total_marks"] += marks
+                counted += marks
+                warnings = [w for w in warnings if not w.startswith(
+                    f"Q{entry['question']}({part['part']}):")]
+                repairs.append(f"Q{entry['question']}({part['part']}): "
+                               f"inferred [{marks}] — {reason}")
         else:
             warnings.append(f"marks add up to {counted} but Booklet B states {stated}; "
                             f"{shortfall} unaccounted for across "
                             f"{len(unknown)} unread allocation(s)")
 
     return {
+        "paper": paper,
         "year": bounds["year"],
+        "school": bounds.get("school"),
         "booklet_b": {"start": booklet_b["start"], "end": booklet_b["end"]},
         "expected_questions": list(expected) if expected else None,
         "stated_total_marks": stated,
@@ -384,14 +590,17 @@ def cross_check_answers(work: Path, result: dict) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--years", nargs="*", type=int)
+    parser.add_argument("--papers", nargs="*",
+                        help="paper ids to index, e.g. 2024 2025-prelim-rosyth")
+    parser.add_argument("--years", nargs="*", type=int,
+                        help="deprecated alias for --papers")
     parser.add_argument("--work", type=Path, default=WORK_DIR)
     args = parser.parse_args(argv)
 
-    years = args.years or sorted(int(p.name) for p in args.work.iterdir()
-                                 if p.is_dir() and p.name.isdigit())
+    papers = (args.papers or [str(y) for y in args.years or []]
+              or corpus.discover(args.work, "boundaries.json"))
     exit_code = 0
-    for year in years:
+    for year in papers:
         work = args.work / str(year)
         result = index_paper(work)
         result["answer_cross_check"] = cross_check_answers(work, result)

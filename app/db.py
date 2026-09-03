@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at  TEXT    NOT NULL,
     subject     TEXT    NOT NULL DEFAULT 'science', -- 'science' | 'chinese'
+    paper       TEXT    NOT NULL DEFAULT '',  -- '2024' | '2025-prelim-rosyth'
     year        INTEGER NOT NULL,
     booklet     TEXT    NOT NULL DEFAULT 'B', -- 'A' (MCQ) | 'B' (open-ended)
     question    INTEGER NOT NULL,
@@ -36,7 +37,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     topics      TEXT                        -- rubric topics, JSON, for weak-area rollup
 );
 CREATE INDEX IF NOT EXISTS attempts_by_question
-    ON attempts (subject, year, question, part);
+    ON attempts (subject, paper, question, part);
 """
 
 
@@ -64,6 +65,11 @@ LATER_COLUMNS = {
     # the default backfills. Question numbers collide freely across subjects --
     # both papers have a Q1 -- so nothing may read the log without a subject.
     "subject": "TEXT NOT NULL DEFAULT 'science'",
+    # Which paper, as opposed to which year. They were the same thing until the
+    # 2025 school prelims arrived: fourteen papers sat in one year, so a year no
+    # longer names a paper. Backfilled below from the year, because every attempt
+    # logged before then was against the PSLE paper whose id *is* its year.
+    "paper": "TEXT NOT NULL DEFAULT ''",
 }
 
 
@@ -74,6 +80,11 @@ def init_db() -> None:
         for column, decl in LATER_COLUMNS.items():
             if column not in existing:
                 conn.execute(f"ALTER TABLE attempts ADD COLUMN {column} {decl}")
+        # SQLite cannot default one column from another, so the backfill is its
+        # own statement. It is safe to repeat: only rows with no paper are
+        # touched, and a paper id is never empty once written.
+        conn.execute("UPDATE attempts SET paper = CAST(year AS TEXT) "
+                     "WHERE paper IS NULL OR paper = ''")
 
 
 def _json(value) -> str | None:
@@ -84,6 +95,9 @@ def save_attempt(payload: dict) -> dict:
     row = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "subject": payload.get("subject", "science"),
+        # A caller that knows only a year is talking about a PSLE paper, whose id
+        # is that year written out.
+        "paper": str(payload.get("paper") or payload["year"]),
         "year": int(payload["year"]),
         "booklet": payload.get("booklet", "B"),
         "question": int(payload["question"]),
@@ -102,22 +116,27 @@ def save_attempt(payload: dict) -> dict:
     }
     with connect() as conn:
         cursor = conn.execute(
-            "INSERT INTO attempts (created_at, subject, year, booklet, question,"
-            " part, mode, answer, transcript, marks, marks_total, graded, claims,"
-            " outcomes, gate_passed, topics)"
-            " VALUES (:created_at, :subject, :year, :booklet, :question, :part,"
-            " :mode, :answer,"
+            "INSERT INTO attempts (created_at, subject, paper, year, booklet,"
+            " question, part, mode, answer, transcript, marks, marks_total,"
+            " graded, claims, outcomes, gate_passed, topics)"
+            " VALUES (:created_at, :subject, :paper, :year, :booklet, :question,"
+            " :part, :mode, :answer,"
             " :transcript, :marks, :marks_total, :graded, :claims, :outcomes,"
             " :gate_passed, :topics)", row)
         row["id"] = cursor.lastrowid
     return row
 
 
-def list_attempts(year: int | None = None, question: int | None = None,
+def list_attempts(paper: str | int | None = None, question: int | None = None,
                   booklet: str | None = None,
                   subject: str = "science",
                   limit: int | None = 200) -> list[dict]:
     """Attempts for one subject, newest first.
+
+    Filtered by paper rather than by year: fifteen Science papers now carry the
+    year 2025 -- the PSLE one and fourteen school prelims -- so a year selects a
+    stack of different papers rather than one. An int is accepted and read as a
+    PSLE id, which is what a year has always meant here.
 
     `subject` is not optional-by-default the way the other filters are: Science
     Q1 and Chinese Q1 are different questions, so a caller that forgets it would
@@ -131,9 +150,9 @@ def list_attempts(year: int | None = None, question: int | None = None,
     already reach the default.
     """
     clauses, params = ["subject = ?"], [subject]
-    if year is not None:
-        clauses.append("year = ?")
-        params.append(year)
+    if paper is not None:
+        clauses.append("paper = ?")
+        params.append(str(paper))
     if question is not None:
         clauses.append("question = ?")
         params.append(question)
@@ -186,7 +205,9 @@ def by_paper_and_day(rows: list[dict], kinds: list[tuple[str, str, str]] = (),
     The unit the progress chart plots. Collapsing to the day alone would be the
     obvious rollup and it loses the one thing the chart is labelled with -- which
     paper the marks came from. A morning on the 2022 paper and an afternoon on
-    2024 are two results, not one average.
+    2024 are two results, not one average. Keyed on the paper id rather than the
+    year for the same reason: a morning on Rosyth's prelim and an afternoon on
+    Nanyang's are two results too, and both are 2025.
 
     `possible` is the marks of what was actually attempted, not the paper's full
     total, so a two-question sitting is not reported as a near-zero score.
@@ -211,7 +232,7 @@ def by_paper_and_day(rows: list[dict], kinds: list[tuple[str, str, str]] = (),
     for row in rows:
         if row["marks"] is None:
             continue
-        bucket = buckets[(day_of(row), row["year"])]
+        bucket = buckets[(day_of(row), row["paper"])]
         targets = [bucket]
         kind = kind_of(row) if kind_of else None
         if kind is not None:
@@ -222,10 +243,10 @@ def by_paper_and_day(rows: list[dict], kinds: list[tuple[str, str, str]] = (),
             target["attempts"] += 1
 
     out = []
-    for (date, year), bucket in sorted(buckets.items()):
+    for (date, paper), bucket in sorted(buckets.items()):
         parts = bucket.pop("parts")
         out.append({
-            "date": date, "year": year, **bucket,
+            "date": date, "paper": paper, **bucket,
             "percent": percent(bucket["earned"], bucket["possible"]),
             "parts": [{"id": kind_id, "name": label, "short": short, **parts[kind_id],
                        "percent": percent(parts[kind_id]["earned"],

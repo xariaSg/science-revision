@@ -1,0 +1,39 @@
+{
+  "_note": [
+    "Booklet A keys read off the scan by eye, for the two schools whose answers",
+    "were printed as a picture of a grid rather than as text. Committed because",
+    "work-ans/ is regenerated; the precedent is review/marks.json, which records",
+    "mark allocations no OCR pass can recover.",
+    "",
+    "These are NOT a substitute for reading the page. build/prelim_key.py checks",
+    "every entry here against whatever OCR could establish from the same grid and",
+    "fails the extraction outright if the two disagree, so this file can fill gaps",
+    "but can never quietly overrule the scan. See CLAUDE.md section 1.6.1 for why",
+    "a wrong digit here is the worst failure in the project.",
+    "",
+    "Red Swastika: OCR read 26 of its 28 cells unaided and agrees with every one",
+    "recorded here; only Q3 and Q7 needed a person. Nanyang: OCR agreed on the 19",
+    "questions numbered 10 and above, which is all its grid can be read for",
+    "without ambiguity, and the rest were read by eye."
+  ],
+  "2025-prelim-nanyang": {
+    "school": "Nanyang",
+    "read": "by eye from work-ans/2025-prelim-nanyang/pages/answer-001.png",
+    "answers": {
+      "1": 2, "2": 3, "3": 3, "4": 2, "5": 4, "6": 2, "7": 4,
+      "8": 4, "9": 3, "10": 1, "11": 3, "12": 4, "13": 4, "14": 1,
+      "15": 3, "16": 2, "17": 4, "18": 4, "19": 3, "20": 2, "21": 1,
+      "22": 4, "23": 3, "24": 2, "25": 2, "26": 4, "27": 1, "28": 2
+    }
+  },
+  "2025-prelim-red-swastika": {
+    "school": "Red Swastika",
+    "read": "by eye from work-ans/2025-prelim-red-swastika/pages/answer-001.png",
+    "answers": {
+      "1": 1, "2": 2, "3": 3, "4": 1, "5": 4, "6": 3, "7": 2,
+      "8": 1, "9": 4, "10": 3, "11": 4, "12": 4, "13": 2, "14": 4,
+      "15": 3, "16": 4, "17": 4, "18": 4, "19": 2, "20": 4, "21": 3,
+      "22": 1, "23": 4, "24": 2, "25": 4, "26": 1, "27": 3, "28": 3
+    }
+  }
+}
