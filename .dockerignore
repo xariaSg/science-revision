@@ -1,0 +1,52 @@
+# Two jobs: keep the secret out of the image, and keep ~1.6GB of build-time-only
+# material out of it. Everything not listed here is sent to the daemon, so the
+# exclusions below are what make `COPY work-a/ ...` mean "the pages", not "the
+# pages and the OCR cache they were read with".
+
+# The API key. Passed in at run time instead (docker-compose.yml env_file), because
+# an image carrying a secret leaks it to anyone the image reaches.
+.env
+
+.git
+.gitignore
+.venv
+.pytest_cache
+**/__pycache__
+*.py[cod]
+**/.DS_Store
+.claude/
+
+# The source exam PDFs -- the ingestion pipeline's input, not the app's. The app
+# only ever reads what build/ rendered out of them.
+papers/
+
+# Build-time only: the pipeline, its tests, and the prose about them.
+build/
+tests/
+docs/
+CLAUDE.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# The attempt log is runtime state and is mounted, not baked in. Baking it would
+# put a child's practice history inside a shareable artefact, and freeze it at
+# whatever it was on build day.
+data/
+
+# OCR caches. Build-time only, and ~5MB-plus per subject of no use to any route.
+work/*/ocr
+work/*/ocr-vision
+work-a/*/ocr-vision
+work-b/*/ocr
+work-ans/*/ocr-vision
+work-cn/*/ocr-vision
+work/*/contact-sheet.png
+
+# Answer-page renders, ~320MB of them. No route reads any of these -- the Science
+# answers are served as text out of rubrics/ and the Chinese key is unpacked to its
+# own directory precisely so that no URL reaches it (CLAUDE.md 7.1). Leaving them
+# out of the image makes that structural rather than a matter of routing.
+work-ans/*/pages
+work-cn/*/answer-pages
+work/*/answers

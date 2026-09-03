@@ -1,0 +1,42 @@
+# docker compose up --build
+#
+# One service, because the app is one process: FastAPI serves the API, the page
+# scans and the front end, and SQLite needs no server of its own.
+
+services:
+  psle:
+    build:
+      context: .
+      # Chinese never records, so a Chinese-only image can skip the ~500MB of
+      # Whisper weights with:  WHISPER_MODEL= docker compose build
+      args:
+        WHISPER_MODEL: ${WHISPER_MODEL-small.en}
+    image: psle-practice:local
+    container_name: psle
+
+    # Published on every interface, so the paper can be sat on a tablet on the same
+    # network. Two things follow from that, and both matter:
+    #
+    #  * There is no login. Anyone who can reach this port can read the papers, so
+    #    keep it to a home network. "127.0.0.1:8000:8000" restricts it to this
+    #    machine, which is the right setting if only this laptop is used.
+    #  * Over plain http:// on anything but localhost, browsers refuse microphone
+    #    access, so Science's spoken answers fall back to typing. See docs/DOCKER.md.
+    ports:
+      - "8000:8000"
+
+    # Read on the host at start-up and injected as environment variables. The file is
+    # never copied into the image (.dockerignore), so the key lives in exactly one
+    # place. Without ANTHROPIC_API_KEY the app still runs: marking falls back to
+    # self-marking against the model answer (CLAUDE.md 2.2).
+    env_file:
+      - .env
+
+    # The two paths the app writes to. Bound to the repo rather than to named volumes
+    # so that the practice history the local app has already built up is the same
+    # history the container reads -- and so a backup is a file copy.
+    volumes:
+      - ./data:/app/data
+      - ./review:/app/review
+
+    restart: unless-stopped

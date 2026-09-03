@@ -948,3 +948,31 @@ and it turns 82% back into something to talk about.
 
 The panel sits under the chart rather than in a dialog: it is a reading of the
 bar above it, and both should be visible at once.
+
+---
+
+## 9. The container
+
+`Dockerfile` and `docker-compose.yml` build one image holding the app, both
+subjects' papers and the Whisper weights. `docs/DOCKER.md` is the operational
+note; three things about it are load-bearing rather than incidental.
+
+- **`requirements-app.txt` is what the image installs**, not `requirements.txt`.
+  The ingestion half of `requirements.txt` cannot install on Linux at all — the
+  OCR pass is macOS Vision, and pyobjc has no Linux wheels. A new *runtime*
+  dependency must be added to **both** files, or it resolves locally and the
+  container fails on import.
+- **The image carries no answer renders.** `work-ans/*/pages` and
+  `work-cn/*/answer-pages` are excluded by `.dockerignore`, and `work/`'s two
+  full-paper unpacks are pruned at build time to their Booklet B range. The routes
+  already refuse to serve outside it (§1.6, §7.1); this makes the filesystem agree,
+  so a later routing mistake cannot expose a page that is not there.
+- **Nothing is fetched at run time.** The Whisper weights are baked in and
+  `HF_HUB_OFFLINE=1` holds the container to them, so §2.2 survives being hosted.
+  Changing `PSLE_WHISPER_MODEL` therefore needs a rebuild
+  (`--build-arg WHISPER_MODEL=…`), not an edit to `.env`.
+
+One thing hosting cannot fix: browsers grant microphone access only on `https://`
+or `localhost`, so Science's spoken answers do not work over plain HTTP to a LAN
+address and fall back to typing. Chinese is unaffected — it is typed and chosen by
+design (§7.6).

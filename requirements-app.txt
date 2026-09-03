@@ -1,0 +1,12 @@
+# What the app itself imports, and nothing else.
+#
+# requirements.txt is the development set: it also carries the ingestion pipeline
+# (PyMuPDF, Pillow, tesseract, macOS Vision) and pytest. The app never imports any
+# of it, and half of it cannot install in the container at all -- pyobjc has no
+# Linux wheels. Pins are kept identical to requirements.txt; change them together.
+
+anthropic==0.120.2
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+python-multipart==0.0.32
+faster-whisper==1.2.1
