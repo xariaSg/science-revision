@@ -1,4 +1,6 @@
-"""Which Science papers exist, what to call them, and what order to show them in.
+"""Which papers exist, what to call them, and what order to show them in.
+
+Shared by Science and English, which both key on the same paper ids.
 
 A paper used to be a year. Fourteen schools sat their own prelim in 2025, so it is
 now a string id -- `2024` for the PSLE paper, `2025-prelim-rosyth` for Rosyth's --
@@ -76,11 +78,17 @@ def _schools() -> dict[str, str]:
     """paper id -> the school's own name, read from whichever index carries it.
 
     Booklet A and Booklet B are indexed separately and either may be the one
-    built, so both roots are consulted. The id is the fallback, which means a
-    paper is always nameable even before anything records a school for it.
+    built, so both roots are consulted -- for both subjects that have booklets.
+    The id is the fallback, which means a paper is always nameable even before
+    anything records a school for it.
+
+    Names are shared across subjects rather than looked up per subject, because
+    the school is a property of the paper id: `2026-prelim-nanyang` is Nanyang
+    whichever subject asks.
     """
     found: dict[str, str] = {}
-    for root in (REPO / "work-a", REPO / "work-b", REPO / "work"):
+    for root in (REPO / "work-a", REPO / "work-b", REPO / "work",
+                 REPO / "work-en-a", REPO / "work-en-b"):
         if not root.exists():
             continue
         for path in sorted(root.iterdir()):

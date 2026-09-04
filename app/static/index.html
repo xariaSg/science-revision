@@ -103,7 +103,50 @@
     </main>
   </div>
 
+  <!-- English: one booklet of Paper 2 at a time, loaded whole. Both booklets put
+       most of their questions inside a passage — Booklet A's cloze and visual
+       text, all of Booklet B — so the page is the unit of reading here too, and
+       the marks arrive once at the end. -->
+  <div id="enPractice" class="screen" hidden>
+    <header>
+      <h1><button id="enHome" class="crumb" type="button">‹ Papers</button>
+        <span id="enTitle">English</span></h1>
+      <div class="pickers">
+        <label>Go to <select id="enJump"></select></label>
+      </div>
+      <div class="nav">
+        <span id="enScore" class="score"></span>
+        <a href="/progress" class="linkbtn">Progress</a>
+      </div>
+    </header>
+
+    <main>
+      <section id="enPaper" aria-label="Question paper">
+        <div class="zoom">
+          <button data-enzoom="out" type="button">−</button>
+          <span id="enZoomLabel">Fit</span>
+          <button data-enzoom="in" type="button">+</button>
+        </div>
+        <div id="enPages"></div>
+      </section>
+
+      <div id="enSplitter" role="separator" aria-orientation="vertical" tabindex="0"
+           aria-label="Resize the paper and answer panes"
+           title="Drag to resize · double-click to reset"></div>
+
+      <section id="enAnswers" aria-label="Your answers">
+        <div id="enSummary" hidden></div>
+        <div id="enList"></div>
+        <div id="enFinishBar">
+          <button id="enFinish" class="primary" type="button">Finish and see my marks</button>
+          <span id="enProgress"></span>
+        </div>
+      </section>
+    </main>
+  </div>
+
   <script src="/chinese.js"></script>
+  <script src="/english.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

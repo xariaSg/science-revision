@@ -61,13 +61,20 @@ WhisperModel('$WHISPER_MODEL', device='cpu', compute_type='int8')"; \
 #   work-a/     Booklet A -- pages and the question inventory
 #   work-ans/   the Booklet A answer key (its page renders are excluded)
 #   work-cn/    Chinese Paper 2 -- pages, index, key and rubrics
+#   work-en-a/  English Paper 2 Booklet A -- pages and the question inventory
+#   work-en-b/  English Paper 2 Booklet B -- pages and the question inventory
+#   work-en-ans/ both English keys, as JSON (their page renders are excluded)
 #   rubrics/    Science rubrics: the model answers, explanations and chains
-#   review/     flags raised on a rubric; written to at run time
+#   review/     flags raised on a rubric, and the keys read by eye; written to
+#               at run time
 COPY work/ ./work/
 COPY work-a/ ./work-a/
 COPY work-b/ ./work-b/
 COPY work-ans/ ./work-ans/
 COPY work-cn/ ./work-cn/
+COPY work-en-a/ ./work-en-a/
+COPY work-en-b/ ./work-en-b/
+COPY work-en-ans/ ./work-en-ans/
 COPY rubrics/ ./rubrics/
 COPY review/ ./review/
 

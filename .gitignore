@@ -8,6 +8,9 @@ work-a/
 work-b/
 work-ans/
 work-cn/
+work-en-a/
+work-en-b/
+work-en-ans/
 
 # Generated rubrics embed the publisher's model answers and explanations verbatim.
 # The authored chains — this project's own work — live in build/authored/ and are

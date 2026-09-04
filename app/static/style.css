@@ -627,34 +627,61 @@ main.single { grid-template-columns: 1fr; }
 .card-hint, .card-meta { font-size: 13px; color: var(--muted); }
 .home-foot { margin-top: 32px; text-align: center; }
 
-/* ------------------------------------------------------------------- chinese */
+/* ------------------------------------------- whole-paper screens: 华文 and English
 
-#cnPractice main {
-  /* Its own split value: the Chinese paper pane holds a whole booklet rather
-     than one question, so it is worth more room than Science's default. */
-  grid-template-columns: var(--cn-split, 50%) 10px minmax(0, 1fr);
-}
-#cnSplitter {
+   Chinese Paper 2 and English Paper 2 are the same *kind* of screen -- the whole
+   booklet scrolling on one side, every question's answer card on the other, and
+   one mark at the end -- because both papers put their questions inside passages
+   (CLAUDE.md 7.3). So the two share these rules rather than each having its own
+   copy, and every selector below names both. Only the split default differs:
+   each screen keeps its own custom property. */
+
+
+/* Each screen holds a whole booklet rather than one question, so the paper pane
+   is worth more room than Science's default -- and each remembers its own width,
+   because a Chinese page and an English page are not the same shape. */
+#cnPractice main { grid-template-columns: var(--cn-split, 50%) 10px minmax(0, 1fr); }
+#enPractice main { grid-template-columns: var(--en-split, 50%) 10px minmax(0, 1fr); }
+#cnSplitter,
+#enSplitter {
   align-self: stretch; min-height: 200px; cursor: col-resize;
   position: relative; border-radius: 999px; touch-action: none;
 }
-#cnSplitter::before { content: ""; position: absolute; inset: 0 -5px; }
-#cnSplitter::after {
+#cnSplitter::before,
+#enSplitter::before { content: ""; position: absolute; inset: 0 -5px; }
+#cnSplitter::after,
+#enSplitter::after {
   content: ""; position: absolute; left: 50%; transform: translateX(-50%);
   top: 8px; bottom: 8px; width: 3px; border-radius: 999px;
   background: var(--line); transition: background 0.15s ease;
 }
-#cnSplitter:hover::after, #cnSplitter:focus-visible::after { background: var(--accent); }
-#cnSplitter:focus-visible { outline: none; }
+#cnSplitter:hover::after,
+#enSplitter:hover::after,
+#cnSplitter:focus-visible::after,
+#enSplitter:focus-visible::after { background: var(--accent); }
+#cnSplitter:focus-visible,
+#enSplitter:focus-visible { outline: none; }
 
-#cnPaper { position: relative; }
-#cnPages { overflow: auto; max-height: 88vh; border-radius: 8px; background: #eef0f4; }
-.cn-page img { display: block; width: 100%; margin: 0 auto 10px; background: #fff; }
+#cnPaper,
+#enPaper { position: relative; }
+#cnPages,
+#enPages { overflow: auto; max-height: 88vh; border-radius: 8px; background: #eef0f4; }
+.cn-page img,
+.en-page img { display: block; width: 100%; margin: 0 auto 10px; background: #fff; }
 
-#cnAnswers { max-height: 92vh; overflow: auto; }
-#cnList { display: flex; flex-direction: column; gap: 10px; }
+#cnAnswers,
+#enAnswers {
+  max-height: 92vh; overflow: auto;
+  /* The offsetParent a selected card's own offsetTop is measured from, so
+     jumping to it can use the same offsetTop-diff scrollTop assignment
+     showPage() already uses for the paper pane's #cnPaper/#enPaper. */
+  position: relative;
+}
+#cnList,
+#enList { display: flex; flex-direction: column; gap: 10px; }
 
-.cn-section {
+.cn-section,
+.en-section {
   margin: 16px 0 2px;
   font-size: 15px;
   display: flex;
@@ -663,54 +690,130 @@ main.single { grid-template-columns: 1fr; }
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
 }
-.cn-section:first-child { margin-top: 0; }
-.cn-section .grp {
+.cn-section:first-child,
+.en-section:first-child { margin-top: 0; }
+.cn-section .grp,
+.en-section .grp {
   font-size: 12px; color: var(--accent);
   background: var(--accent-soft); padding: 1px 7px; border-radius: 999px;
 }
-.cn-section .hint { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: 400; }
+.cn-section .hint,
+.en-section .hint { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: 400; }
 
-.cn-card {
+.cn-card,
+.en-card {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px 12px;
   background: var(--panel);
   scroll-margin-top: 10px;
 }
-.cn-card.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.cn-card.done { background: #fbfcfd; }
-.cn-card.done.right { border-color: #bfe0cb; background: #f6fbf8; }
+.cn-card.current,
+.en-card.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cn-card.done,
+.en-card.done { background: #fbfcfd; }
+.cn-card.done.right,
+.en-card.done.right { border-color: #bfe0cb; background: #f6fbf8; }
 
-.cn-card-head { display: flex; align-items: baseline; gap: 10px; }
-.cn-card-head h3 { margin: 0; font-size: 16px; }
-.cn-card-head .linkbtn.tiny {
+.cn-card-head,
+.en-card-head { display: flex; align-items: baseline; gap: 10px; }
+.cn-card-head h3,
+.en-card-head h3 { margin: 0; font-size: 16px; }
+.cn-card-head .linkbtn.tiny,
+.en-card-head .linkbtn.tiny {
   margin-left: auto; font-size: 12px; padding: 2px 8px; border: none; color: var(--muted);
 }
-.cn-card-head .linkbtn.tiny:hover { color: var(--accent); }
-.cn-card-body { margin-top: 8px; }
+.cn-card-head .linkbtn.tiny:hover,
+.en-card-head .linkbtn.tiny:hover { color: var(--accent); }
+.cn-card-body,
+.en-card-body { margin-top: 8px; }
 
 .options { display: flex; gap: 6px; flex-wrap: wrap; }
-.cn-card .option {
+.cn-card .option,
+.en-card .option {
   min-width: 40px; padding: 7px 0; flex: 0 0 auto;
   text-align: center; font-variant-numeric: tabular-nums;
 }
-.cn-card .option.chosen { border-color: var(--accent); }
-.cn-card .option.correct { border-color: var(--good); color: var(--good); background: #f2f9f5; }
-.cn-card .option.wrong { border-color: #d34a4a; color: #d34a4a; background: #fdf1f1; }
+.cn-card .option.chosen,
+.en-card .option.chosen { border-color: var(--accent); }
+.cn-card .option.correct,
+.en-card .option.correct { border-color: var(--good); color: var(--good); background: #f2f9f5; }
+.cn-card .option.wrong,
+.en-card .option.wrong { border-color: #d34a4a; color: #d34a4a; background: #fdf1f1; }
 
 textarea.cn-answer { min-height: 0; margin-top: 0; line-height: 1.7; }
-.cn-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.cn-actions .primary { border-color: var(--accent); color: var(--accent); }
+/* A transformed sentence is a whole sentence and often a long one, so the box is
+   sized to hold it without scrolling rather than to the two lines a short answer
+   would need. */
+textarea.en-answer {
+  min-height: 110px; margin-top: 0; line-height: 1.7; font-size: 16px;
+}
 
-.cn-feedback:not(:empty) { margin-top: 10px; }
-.cn-feedback .verdict { margin: 0 0 4px; font-weight: 650; font-size: 15px; }
-.cn-feedback .verdict.ok { color: var(--good); }
-.cn-feedback .verdict.no { color: #b4453f; }
-.cn-feedback .verdict.part { color: var(--warn); }
-.cn-feedback .verdict .muted { font-weight: 400; color: var(--muted); font-size: 13px; }
-.cn-feedback .note { margin: 4px 0; font-size: 14.5px; line-height: 1.7; }
-.cn-feedback .error { color: #b4453f; font-size: 13.5px; margin: 4px 0; }
-.cn-feedback .source { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+/* A one-word answer gets a one-line box and a sentence gets a textarea: the
+   shape of the box is the plainest thing on screen saying how much to write, and
+   a Booklet B page mixes the two a dozen times over. */
+input.en-answer {
+  width: 100%;
+  padding: 13px 12px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+input.en-answer:focus {
+  outline: 2px solid var(--accent-soft); border-color: var(--accent);
+}
+input.en-answer:read-only { background: #f6f7f9; color: var(--muted); }
+
+/* The printed instruction, under the section's name. Two of Booklet B's five
+   sections are both "fill in a blank" and only their own wording tells them
+   apart, so it is shown rather than summarised. */
+/* The sections this app does not mark, named once at the foot of the list rather
+   than as a row of apologetic cards between the student and the work they can do.
+   The pages are still in the paper pane and the links go there. */
+.en-skipped {
+  margin: 14px 2px 0;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--muted);
+}
+.en-skipped .linkbtn.tiny {
+  font-size: 12.5px; padding: 0 4px; border: none; background: none;
+  color: var(--accent); cursor: pointer;
+}
+
+.en-section .instruction {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.cn-actions,
+.en-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.cn-actions .primary,
+.en-actions .primary { border-color: var(--accent); color: var(--accent); }
+
+.cn-feedback:not(:empty),
+.en-feedback:not(:empty) { margin-top: 10px; }
+.cn-feedback .verdict,
+.en-feedback .verdict { margin: 0 0 4px; font-weight: 650; font-size: 15px; }
+.cn-feedback .verdict.ok,
+.en-feedback .verdict.ok { color: var(--good); }
+.cn-feedback .verdict.no,
+.en-feedback .verdict.no { color: #b4453f; }
+.cn-feedback .verdict.part,
+.en-feedback .verdict.part { color: var(--warn); }
+.cn-feedback .verdict .muted,
+.en-feedback .verdict .muted { font-weight: 400; color: var(--muted); font-size: 13px; }
+.cn-feedback .note,
+.en-feedback .note { margin: 4px 0; font-size: 14.5px; line-height: 1.7; }
+.cn-feedback .error,
+.en-feedback .error { color: #b4453f; font-size: 13.5px; margin: 4px 0; }
+.cn-feedback .source,
+.en-feedback .source { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 
 .kps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .kps .kp { display: flex; gap: 8px; align-items: baseline; font-size: 14px; line-height: 1.6; }
@@ -725,31 +828,41 @@ textarea.cn-answer { min-height: 0; margin-top: 0; line-height: 1.7; }
   background: var(--accent-soft); border-radius: 999px; padding: 1px 7px; height: fit-content;
 }
 
-.cn-feedback .model { background: var(--accent-soft); border-radius: 8px; padding: 10px; margin-top: 8px; }
-.cn-feedback .model .label {
+.cn-feedback .model,
+.en-feedback .model { background: var(--accent-soft); border-radius: 8px; padding: 10px; margin-top: 8px; }
+.cn-feedback .model .label,
+.en-feedback .model .label {
   margin: 0 0 4px; font-size: 12px; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--accent);
 }
-.cn-feedback .model p { margin: 0 0 4px; font-size: 14.5px; line-height: 1.75; }
-.cn-feedback .model .muted { color: var(--muted); font-size: 13px; }
-.cn-feedback details.model summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+.cn-feedback .model p,
+.en-feedback .model p { margin: 0 0 4px; font-size: 14.5px; line-height: 1.75; }
+.cn-feedback .model .muted,
+.en-feedback .model .muted { color: var(--muted); font-size: 13px; }
+.cn-feedback details.model summary,
+.en-feedback details.model summary { cursor: pointer; font-size: 13px; color: var(--accent); }
 
 .selfmark { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .selfmark span { font-size: 13px; color: var(--muted); }
 .selfmark button { min-width: 34px; padding: 4px 0; text-align: center; }
 .selfmark button.on { border-color: var(--good); color: var(--good); background: #f2f9f5; }
 
-#cnScore { font-size: 13px; color: var(--muted); align-self: center; }
-#cnScore strong { color: var(--ink); font-weight: 650; }
-#cnScore .dot { opacity: 0.5; margin: 0 2px; }
+#cnScore,
+#enScore { font-size: 13px; color: var(--muted); align-self: center; }
+#cnScore strong,
+#enScore strong { color: var(--ink); font-weight: 650; }
+#cnScore .dot,
+#enScore .dot { opacity: 0.5; margin: 0 2px; }
 /* Paired with the width/height attributes: keeps the reserved box in the page's
    real proportions at any zoom, so an unloaded page is exactly as tall as a
    loaded one. */
-.cn-page img { height: auto; }
+.cn-page img,
+.en-page img { height: auto; }
 
 /* -------------------------------------------------- chinese: finish & results */
 
-#cnFinishBar {
+#cnFinishBar,
+#enFinishBar {
   position: sticky;
   bottom: -10px;      /* cancels the pane's own bottom padding */
   display: flex;
@@ -759,35 +872,47 @@ textarea.cn-answer { min-height: 0; margin-top: 0; line-height: 1.7; }
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
-#cnFinishBar[hidden] { display: none; }
+#cnFinishBar[hidden],
+#enFinishBar[hidden] { display: none; }
 /* The last card must clear the bar rather than sit behind it. */
-#cnList { padding-bottom: 6px; }
-#cnFinish {
+#cnList,
+#enList { padding-bottom: 6px; }
+#cnFinish,
+#enFinish {
   border-color: var(--accent); color: var(--accent);
   font-weight: 600; white-space: nowrap;
 }
-#cnFinish:disabled { border-color: var(--line); color: var(--muted); }
-#cnProgress { font-size: 13px; color: var(--muted); }
+#cnFinish:disabled,
+#enFinish:disabled { border-color: var(--line); color: var(--muted); }
+#cnProgress,
+#enProgress { font-size: 13px; color: var(--muted); }
 
 /* Answered, but not yet marked — a quiet "this one is done", carrying no verdict. */
-.cn-card.answered:not(.marked) { border-color: #c8d4e6; }
-.cn-card .option.chosen {
+.cn-card.answered:not(.marked),
+.en-card.answered:not(.marked) { border-color: #c8d4e6; }
+.cn-card .option.chosen,
+.en-card .option.chosen {
   border-color: var(--accent); color: var(--accent); background: var(--accent-soft);
 }
 /* Once marked, the verdict outranks the selection: an option that was both
    chosen and correct must read as correct, not merely as picked. */
-.cn-card.marked .option.correct {
+.cn-card.marked .option.correct,
+.en-card.marked .option.correct {
   border-color: var(--good); color: var(--good); background: #f2f9f5;
 }
-.cn-card.marked .option.wrong {
+.cn-card.marked .option.wrong,
+.en-card.marked .option.wrong {
   border-color: #d34a4a; color: #d34a4a; background: #fdf1f1;
 }
-.cn-card.marked .option.chosen:not(.correct):not(.wrong) {
+.cn-card.marked .option.chosen:not(.correct):not(.wrong),
+.en-card.marked .option.chosen:not(.correct):not(.wrong) {
   border-color: var(--line); color: var(--ink); background: var(--panel);
 }
-.cn-card.marked .option:disabled { opacity: 1; }
+.cn-card.marked .option:disabled,
+.en-card.marked .option:disabled { opacity: 1; }
 
-#cnSummary {
+#cnSummary,
+#enSummary {
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius);
@@ -795,12 +920,18 @@ textarea.cn-answer { min-height: 0; margin-top: 0; line-height: 1.7; }
   margin-bottom: 14px;
   background: var(--accent-soft);
 }
-#cnSummary .label {
+#cnSummary .label,
+#enSummary .label {
   margin: 0; font-size: 12px; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--accent);
 }
-#cnSummary .total { margin: 2px 0 6px; font-size: 15px; }
-#cnSummary .total strong { font-size: 30px; letter-spacing: -0.02em; }
-#cnSummary .total span { color: var(--muted); }
-#cnSummary .muted { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
-#cnSummary button { background: var(--panel); }
+#cnSummary .total,
+#enSummary .total { margin: 2px 0 6px; font-size: 15px; }
+#cnSummary .total strong,
+#enSummary .total strong { font-size: 30px; letter-spacing: -0.02em; }
+#cnSummary .total span,
+#enSummary .total span { color: var(--muted); }
+#cnSummary .muted,
+#enSummary .muted { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+#cnSummary button,
+#enSummary button { background: var(--panel); }

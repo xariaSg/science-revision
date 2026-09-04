@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import chinese
+import english
 import papers as paper_ids
 from db import (by_paper_and_day, day_of, init_db, kinds_present, list_attempts,
                 percent, save_attempt)
@@ -74,11 +75,19 @@ _load_env_file()
 
 app = FastAPI(title="PSLE practice")
 app.include_router(chinese.router)
+app.include_router(english.router)
 
 
-# Science splits into two booklets that are practised separately; Chinese Paper 2
-# is one booklet and loads whole. The UI branches on `modes`, so adding a subject
-# does not mean teaching the front end a new special case.
+# Each subject declares its own steps, so adding one does not mean teaching the
+# front end a new special case. Science splits into two booklets practised
+# separately; Chinese Paper 2 is one booklet and loads whole; English has two
+# booklets like Science and asks which *before* the paper.
+#
+# `mode_first` is that last difference. Science asks for the paper and then greys
+# out a booklet it has no index for; English asks for the booklet and then lists
+# only the papers built for it, which is the better order once the two halves of
+# a subject are backfilled at different rates -- a paper offered and then refused
+# is a worse step than one never offered.
 SUBJECTS = [
     {
         "id": "science",
@@ -86,6 +95,16 @@ SUBJECTS = [
         "modes": [
             {"id": "A", "label": "Booklet A", "hint": "multiple choice"},
             {"id": "B", "label": "Booklet B", "hint": "written"},
+        ],
+    },
+    {
+        "id": "english",
+        "label": "English",
+        "mode_first": True,
+        "modes": [
+            {"id": "A", "label": "Booklet A", "hint": "multiple choice"},
+            {"id": "B", "label": "Booklet B",
+             "hint": "cloze, editing and sentences"},
         ],
     },
     {
@@ -118,14 +137,24 @@ def subjects() -> list[dict]:
                      key=paper_ids.sort_key)
     built = {
         "science": science,
+        "english": english.built(),
         # Chinese is one PSLE paper a year and has no prelims, so its ids are
         # still just years; they are stringified here so both subjects hand the
         # front end the same kind of thing.
         "chinese": [str(y) for y in chinese.indexed_years()],
     }
+    # Which papers a subject has for each of its modes, so a subject that asks for
+    # the mode first can list only the papers that mode is built for.
+    by_mode = {"science": {"A": mcq_papers_built(), "B": indexed_papers()},
+               "english": {"A": english.indexed("A"), "B": english.indexed("B")}}
     return [{**subject,
              "papers": [paper_ids.describe(p) for p in built[subject["id"]]],
-             "groups": paper_ids.grouped(built[subject["id"]])}
+             "groups": paper_ids.grouped(built[subject["id"]]),
+             "modes": [{**mode,
+                        "groups": paper_ids.grouped(
+                            by_mode[subject["id"]][mode["id"]])}
+                       for mode in subject["modes"]]
+             if subject["id"] in by_mode else subject["modes"]}
             for subject in SUBJECTS if built.get(subject["id"])]
 
 
@@ -887,7 +916,7 @@ def index() -> HTMLResponse:
 
 def _shell(name: str) -> HTMLResponse:
     html = (STATIC_DIR / name).read_text()
-    for asset in ("style.css", "app.js", "chinese.js", "review.js",
+    for asset in ("style.css", "app.js", "chinese.js", "english.js", "review.js",
                   "progress.js"):
         path = STATIC_DIR / asset
         if path.exists():
