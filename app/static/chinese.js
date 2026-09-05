@@ -119,6 +119,17 @@ const CN = (() => {
     els.pages.scrollTop = target.offsetTop - els.pages.offsetTop - 8;
   }
 
+  // Jumping to a question from the dropdown is only half done if the paper
+  // scrolls and the answer pane does not -- the student picked Q40 to see and
+  // answer it, not just to see its page. #cnAnswers is the scroller and
+  // `position: relative` in the stylesheet makes it the card's offsetParent,
+  // the same trick showPage() above uses for the paper pane's #cnPaper.
+  function showCard(number) {
+    const target = els.list.querySelector(`.cn-card[data-question="${number}"]`);
+    if (!target) return;
+    els.answers.scrollTop = target.offsetTop - els.answers.offsetTop - 8;
+  }
+
   /* ---------------------------------------------------------- stored answers */
 
   function saveAnswers() {
@@ -538,6 +549,7 @@ const CN = (() => {
     els.jump.addEventListener("change", () => {
       const number = Number(els.jump.value);
       select(number);
+      showCard(number);
       const entry = state.questions.find((q) => q.question === number);
       if (entry) showPage(entry.page);
     });

@@ -41,6 +41,9 @@ work-a/*/ocr-vision
 work-b/*/ocr
 work-ans/*/ocr-vision
 work-cn/*/ocr-vision
+work-en-a/*/ocr-vision
+work-en-b/*/ocr-vision
+work-en-ans/*/ocr-vision
 work/*/contact-sheet.png
 
 # Answer-page renders, ~320MB of them. No route reads any of these -- the Science
@@ -50,3 +53,7 @@ work/*/contact-sheet.png
 work-ans/*/pages
 work-cn/*/answer-pages
 work/*/answers
+# English's key is read on the server out of work-en-ans/*.json; its page renders
+# are what the JSON was read *from* and nothing serves them, so they stay out for
+# the same structural reason.
+work-en-ans/*/pages

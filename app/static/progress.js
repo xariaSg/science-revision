@@ -212,6 +212,8 @@ function writtenList(rows) {
         <span class="dtime">${time(r.at)}</span>
       </div>
       <p class="dtext">${esc(r.answer || "")}</p>
+      ${r.correct === false && r.expected ? `<p class="dnote">The answer was
+        <strong>${esc(r.expected)}</strong>.</p>` : ""}
       ${r.gate_passed === 0 ? `<p class="dnote">Zero for not using the question's
         own details — the textbook-recital trap.</p>` : ""}
     </li>`).join("")}</ul>`;
@@ -332,6 +334,36 @@ function chineseBody(data) {
     ${barRows(data.modes)}`;
 }
 
+function englishBody(data) {
+  const weakest = data.sections.filter((s) => s.percent < 80)
+    .sort((a, b) => a.percent - b.percent).slice(0, 2);
+  return `
+    ${weakest.length ? `<div class="focus">
+      <strong>Worth practising next</strong>
+      ${weakest.map((s) => `${esc(s.name)} (${s.percent}%)`).join(" · ")}
+    </div>` : ""}
+
+    ${data.unmarked ? `<div class="focus warn">
+      <strong>${data.unmarked} answer${data.unmarked === 1 ? "" : "s"}
+      ${data.unmarked === 1 ? "is" : "are"} still waiting to be marked.</strong>
+      A transformed sentence has no rubric to mark it against, so it is marked
+      against the model answer by hand.
+    </div>` : ""}
+
+    <h3>By section</h3>
+    <p class="hint">In the order the paper prints them. Booklet A's names are the
+    school's own; Booklet B prints none, so the section is named by how it is
+    answered.</p>
+    ${barRows(data.sections)}
+
+    <h3>By booklet</h3>
+    <p class="hint">Choosing an option and writing an answer are close to two
+    different skills, and the two booklets are sat separately.</p>
+    ${barRows(data.booklets)}`;
+}
+
+const SUBJECT_BODY = { chinese: chineseBody, english: englishBody };
+
 function render(data) {
   const totals = data.papers.reduce(
     (acc, p) => ({ earned: acc.earned + p.earned, possible: acc.possible + p.possible }),
@@ -342,21 +374,26 @@ function render(data) {
     ${trend(data.papers)}
     ${chart(data.papers, data.kinds || [])}
     <div id="day" class="day" hidden></div>
-    ${data.subject === "chinese" ? chineseBody(data) : scienceBody(data)}`;
+    ${SUBJECT_BODY[data.subject] ? SUBJECT_BODY[data.subject](data)
+                                : scienceBody(data)}`;
   fitKindLabels(els.report);
 }
 
 // ---------------------------------------------------------------- wiring
 
+// One report per subject, never a shared one taking ?subject= (CLAUDE.md 8): the
+// three share only the attempt log and the chart, and a union schema would have
+// two thirds of its fields null on every request.
+const API_BASE = { chinese: "/api/chinese", english: "/api/english" };
+const base = (subject) => API_BASE[subject] || "/api";
+
 function endpoint(subject, paper) {
-  const base = subject === "chinese" ? "/api/chinese" : "/api";
-  return paper === "all" ? `${base}/progress`
-                         : `${base}/papers/${paper}/progress`;
+  return paper === "all" ? `${base(subject)}/progress`
+                         : `${base(subject)}/papers/${paper}/progress`;
 }
 
 function dayEndpoint(subject, paper, date) {
-  const base = subject === "chinese" ? "/api/chinese" : "/api";
-  return `${base}/papers/${paper}/attempts/${date}`;
+  return `${base(subject)}/papers/${paper}/attempts/${date}`;
 }
 
 // Which bar is open. Cleared whenever the report reloads, because the panel sits

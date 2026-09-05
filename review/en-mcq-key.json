@@ -1,0 +1,48 @@
+{
+  "_note": [
+    "English Booklet A answers read off the scan by eye, for the cells the grid",
+    "reader in build/en_key.py refused. Committed because work-en-ans/ is",
+    "regenerated; the precedent is review/prelim-mcq-key.json, which does the same",
+    "job for the two Science schools that printed their key as a picture.",
+    "",
+    "These are NOT a substitute for reading the page. build/en_key.py checks every",
+    "entry here against every cell the scan could establish and fails the",
+    "extraction outright if the two disagree, so this file can fill gaps but can",
+    "never quietly overrule the scan. See CLAUDE.md section 1.6.1 for why a wrong",
+    "digit here is the worst failure in the project: there is no partial credit to",
+    "soften it, and the child is simply told they were wrong when they were right.",
+    "",
+    "2026-prelim-nanyang: the grid reader read 22 of 25 cells unaided and agrees",
+    "with the eye reading on every one of them. The three below are cells where",
+    "the readings did not reach agreement, not cells where they conflicted; each",
+    "was read twice from the 300 dpi render, magnified.",
+    "",
+    "2025-prelim-nanyang: a different table layout from 2026's (typeset, not",
+    "handwritten-grid; four tables rather than the ruled-digit-cell shape",
+    "en_key.py's geometry reader was tuned against), so it read only 10 of 25",
+    "cells unaided. The other 15 are read by eye from the same 300 dpi render, at",
+    "full resolution. All 25 are listed here rather than just the gaps, and the 10",
+    "the reader did establish agree with the eye reading on every one -- see",
+    "work-en-ans/2025-prelim-nanyang/mcq-answers.json before this file was added."
+  ],
+  "2026-prelim-nanyang": {
+    "school": "Nanyang",
+    "read": "by eye from work-en-ans/2026-prelim-nanyang/pages/page-001.png",
+    "answers": {
+      "11": 1,
+      "17": 3,
+      "24": 3
+    }
+  },
+  "2025-prelim-nanyang": {
+    "school": "Nanyang",
+    "read": "by eye from work-en-ans/2025-prelim-nanyang/pages/page-001.png",
+    "answers": {
+      "1": 1, "2": 1, "3": 4, "4": 3, "5": 3,
+      "6": 3, "7": 3, "8": 4, "9": 4, "10": 4,
+      "11": 4, "12": 3, "13": 4, "14": 2, "15": 4,
+      "16": 4, "17": 1, "18": 2, "19": 2, "20": 4,
+      "21": 1, "22": 1, "23": 4, "24": 3, "25": 4
+    }
+  }
+}

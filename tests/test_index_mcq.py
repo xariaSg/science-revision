@@ -11,10 +11,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "build"))
 
 from ocr_vision import Line  # noqa: E402
-from index_mcq import (  # noqa: E402
-    FURNITURE_RE, NUMBER_RE, OPTION_RE, QUESTION_RE, RANGE_RE, TOTAL_MARKS_RE,
-    _after_option_block, _row_at, longest_increasing_run,
+# The run-finding machinery moved to mcq_runs when English's Booklet A began
+# sharing it; what a Science paper says about its own shape stayed behind.
+from mcq_runs import (  # noqa: E402
+    FURNITURE_RE, NUMBER_RE, OPTION_RE, QUESTION_RE,
+    after_option_block, row_at, longest_increasing_run,
 )
+from index_mcq import RANGE_RE, TOTAL_MARKS_RE  # noqa: E402
 
 
 def line(text, left=300, top=100, height=50, width=1400):
@@ -107,19 +110,19 @@ def test_longest_run_on_nothing():
 
 def test_row_at_finds_the_nearest_row_on_the_page():
     rows = [(1, line("a", top=100)), (1, line("b", top=500)), (2, line("c", top=100))]
-    assert _row_at(rows, 1, 110, 50) == 0
-    assert _row_at(rows, 2, 110, 50) == 2
+    assert row_at(rows, 1, 110, 50) == 0
+    assert row_at(rows, 2, 110, 50) == 2
 
 
 def test_row_at_refuses_a_row_too_far_away():
     rows = [(1, line("a", top=100))]
-    assert _row_at(rows, 1, 900, 50) is None
+    assert row_at(rows, 1, 900, 50) is None
 
 
 def test_row_at_will_not_cross_pages():
     """A number on page 4 must never be matched to a row on page 3."""
     rows = [(3, line("a", top=100))]
-    assert _row_at(rows, 4, 100, 50) is None
+    assert row_at(rows, 4, 100, 50) is None
 
 
 # --------------------------------------------------------- the option-block tier
@@ -145,7 +148,7 @@ def test_question_after_a_complete_option_block():
         (3, "(1) Energy is transferred from predators to prey"),
         (3, "5 Halim found an animal in a stream"),
     ])
-    assert _after_option_block(rows, 0, 7) == 5
+    assert after_option_block(rows, 0, 7) == 5
 
 
 def test_option_block_takes_the_first_complete_run_not_the_last():
@@ -159,7 +162,7 @@ def test_option_block_takes_the_first_complete_run_not_the_last():
         (3, "- (1)"), (3, "- (2)"), (3, "- (3)"), (3, "- (4)"),
         (3, "5 Water droplets are observed on the surface of leaves"),
     ])
-    assert _after_option_block(rows, 0, 10) == 5
+    assert after_option_block(rows, 0, 10) == 5
 
 
 def test_option_block_steps_over_the_page_furniture():
@@ -176,7 +179,7 @@ def test_option_block_steps_over_the_page_furniture():
     ])
     # Overleaf, so the question owns the page from the top rather than from the
     # first row that happened to be readable.
-    assert _after_option_block(rows, 0, 8) == 6
+    assert after_option_block(rows, 0, 8) == 6
 
 
 def test_option_block_refuses_when_the_options_are_pictures():
@@ -187,7 +190,7 @@ def test_option_block_refuses_when_the_options_are_pictures():
         (2, "Which bird is best suited for pollinating this flower?"),
         (2, "3 The diagram shows a plant cell."),
     ])
-    assert _after_option_block(rows, 0, 2) is None
+    assert after_option_block(rows, 0, 2) is None
 
 
 def test_option_block_refuses_when_the_boundary_is_the_next_question():
@@ -198,4 +201,4 @@ def test_option_block_refuses_when_the_boundary_is_the_next_question():
         (2, "(1) a"), (2, "(2) b"), (2, "(3) c"), (2, "(4) d"),
         (2, "3 What is one effect of deforestation?"),
     ])
-    assert _after_option_block(rows, 0, 5) is None
+    assert after_option_block(rows, 0, 5) is None

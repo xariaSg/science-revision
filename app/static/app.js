@@ -737,6 +737,7 @@ async function setBooklet(booklet) {
 const home = {
   subjects: [],
   subject: null,
+  mode: null,
   group: null,
   paper: null,
 };
@@ -745,13 +746,22 @@ const screens = {
   home: document.getElementById("home"),
   science: document.getElementById("practice"),
   chinese: document.getElementById("cnPractice"),
+  english: document.getElementById("enPractice"),
 };
+
+// Which papers the picker is choosing between at this step. A subject that asks
+// for the booklet first has already narrowed them, and listing the papers the
+// *subject* has would offer one the chosen booklet is not built for.
+const homeGroups = () =>
+  (home.mode && home.mode.groups) || home.subject.groups;
 
 function showScreen(name) {
   for (const [key, el] of Object.entries(screens)) {
     if (el) el.hidden = key !== name;
   }
 }
+
+const plural = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 function cardButton({ title, hint, meta, onPick }) {
   const button = document.createElement("button");
@@ -777,14 +787,44 @@ function renderHome() {
     for (const subject of home.subjects) {
       cards.append(cardButton({
         title: subject.label,
-        meta: `${subject.papers.length} papers`,
+        meta: plural(subject.papers.length, "paper"),
         onPick: () => {
           home.subject = subject;
-          home.group = subject.groups.length === 1 ? subject.groups[0] : null;
+          home.mode = null;
           home.paper = null;
+          home.group = subject.mode_first || subject.groups.length !== 1
+            ? null : subject.groups[0];
           renderHome();
         },
       }));
+    }
+    return;
+  }
+
+  // English asks which booklet before which paper. The two booklets of a subject
+  // are backfilled at different rates, so choosing the booklet first lists only
+  // the papers built for it — a better step than offering a paper and then
+  // refusing the booklet, which is what Science's order has to do.
+  if (home.subject.mode_first && !home.mode) {
+    hint.textContent = `${home.subject.label} — which booklet?`;
+    back.hidden = false;
+    back.onclick = () => { home.subject = null; renderHome(); };
+    for (const mode of home.subject.modes) {
+      const papers = (mode.groups || []).reduce((n, g) => n + g.papers.length, 0);
+      const button = cardButton({
+        title: mode.label,
+        hint: mode.hint,
+        meta: plural(papers, "paper"),
+        onPick: () => {
+          home.mode = mode;
+          home.paper = null;
+          home.group = (mode.groups || []).length === 1 ? mode.groups[0] : null;
+          renderHome();
+        },
+      });
+      button.disabled = !papers;
+      if (!papers) button.title = "Not indexed for any paper yet";
+      cards.append(button);
     }
     return;
   }
@@ -797,11 +837,14 @@ function renderHome() {
   if (!home.group) {
     hint.textContent = `${home.subject.label} — which papers?`;
     back.hidden = false;
-    back.onclick = () => { home.subject = null; renderHome(); };
-    for (const group of home.subject.groups) {
+    back.onclick = () => {
+      if (home.mode) home.mode = null; else home.subject = null;
+      renderHome();
+    };
+    for (const group of homeGroups()) {
       cards.append(cardButton({
         title: group.group,
-        meta: `${group.papers.length} papers`,
+        meta: plural(group.papers.length, "paper"),
         onPick: () => { home.group = group; home.paper = null; renderHome(); },
       }));
     }
@@ -812,11 +855,15 @@ function renderHome() {
     hint.textContent = `${home.group.group} — which paper?`;
     back.hidden = false;
     back.onclick = () => {
-      // Straight back to the subject where the group step was skipped, so Back
-      // never lands on a screen the student was not shown on the way in.
-      home.group = home.subject.groups.length === 1 ? null : home.group;
-      if (home.subject.groups.length === 1) home.subject = null;
-      else home.group = null;
+      // Straight back past any step that was skipped on the way in, so Back
+      // never lands on a screen the student was not shown. The group step is
+      // skipped where there is only one group, which is every subject but
+      // Science — asking "PSLE or PSLE?" answers itself.
+      home.group = null;
+      if (homeGroups().length === 1) {
+        if (home.mode) home.mode = null;
+        else home.subject = null;
+      }
       renderHome();
     };
     for (const paper of home.group.papers) {
@@ -825,8 +872,10 @@ function renderHome() {
         hint: paper.prelim ? `${paper.year} prelim` : "",
         onPick: () => {
           home.paper = paper;
-          // A subject with no modes has nothing left to ask.
-          if (home.subject.modes.length) renderHome();
+          // Nothing left to ask once the booklet was chosen first, and nothing
+          // to ask at all for a subject with no modes.
+          if (home.mode) openPaper(home.mode.id);
+          else if (home.subject.modes.length) renderHome();
           else openPaper();
         },
       }));
@@ -860,6 +909,17 @@ async function openPaper(mode) {
       showScreen("home");
       document.getElementById("homeHint").textContent =
         `Could not open that paper: ${err.message}`;
+    }
+    return;
+  }
+  if (home.subject.id === "english") {
+    showScreen("english");
+    try {
+      await EN.start(home.paper.paper, mode, home.paper.label);
+    } catch (err) {
+      showScreen("home");
+      document.getElementById("homeHint").textContent =
+        `Could not open that booklet: ${err.message}`;
     }
     return;
   }
@@ -915,6 +975,7 @@ async function init() {
   }
   document.getElementById("sciHome").addEventListener("click", goHome);
   document.getElementById("cnHome").addEventListener("click", goHome);
+  document.getElementById("enHome").addEventListener("click", goHome);
 
   renderHome();
 }

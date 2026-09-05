@@ -6,20 +6,20 @@ how to fix it.
 
 Single user (one child), runs on localhost, never deployed.
 
-Two subjects, and they are less alike than they look:
+Three subjects, and they are less alike than they look:
 
-| | Science | Chinese |
-|---|---|---|
-| Papers | Booklet A (MCQ) and Booklet B (open-ended), practised separately | Paper 2, loaded whole (both booklets where the year has two, §7.5) |
-| Answering | spoken, transcribed locally | typed and chosen — never spoken, see §7.6 |
-| Marking | chains of cause and effect, authored by hand (§3) | keypoints the publisher printed (§7.4) |
-| Years built | 2012–2025 | 2012–2025 |
+| | Science | Chinese | English |
+|---|---|---|---|
+| Papers | Booklet A (MCQ) and Booklet B (open-ended), practised separately | Paper 2, loaded whole (both booklets where the year has two, §7.5) | Paper 2 Booklet A and Booklet B, one at a time, each loaded whole (§11) |
+| Answering | spoken, transcribed locally | typed and chosen — never spoken, see §7.6 | typed and chosen (§11.6) |
+| Marking | chains of cause and effect, authored by hand (§3) | keypoints the publisher printed (§7.4) | the school's key, by digit or by string (§11.4) |
+| Years built | 2012–2025 | 2012–2025 | one 2026 prelim |
 
-**Sections 1–6 are Science. Section 7 is Chinese.** The numbering is load-bearing:
-code comments cite these sections by number, so nothing here may be renumbered.
-Anything general enough to cover both subjects — the copyright constraint (§2.1),
-the offline-degradation rule (§2.2), the child-facing tone (§2.3) — lives in §2 and
-applies to both.
+**Sections 1–6 are Science. Section 7 is Chinese. Section 11 is English.** The
+numbering is load-bearing: code comments cite these sections by number, so nothing
+here may be renumbered. Anything general enough to cover every subject — the
+copyright constraint (§2.1), the offline-degradation rule (§2.2), the child-facing
+tone (§2.3) — lives in §2 and applies to all three.
 
 ---
 
@@ -1188,3 +1188,345 @@ build/rubric.py --questions-root work-b    # -> rubrics/<paper>.json
 The two ordering constraints are the ones §1.6.1 and §7.7 already document, for
 the same reason: a key that is short at the *end* leaves no gap in the sequence
 for anyone to notice, so only the booklet's own question count reveals it.
+
+---
+
+## 11. English Paper 2
+
+Built for **one paper**: Nanyang's 2026 prelim, both booklets. Everything below
+was confirmed by direct inspection. The corpus will grow — the source folders
+hold 2020–2026 — so where a claim is true of this paper rather than of English
+papers in general, it says so.
+
+The third subject, and it settles a question the first two left open: what
+carries across a subject boundary and what does not. Booklet A is multiple
+choice with options (1)–(4), so it shares Science's question-finding machinery
+outright. Everything about the paper's *shape* is different, and the shape is
+closer to Chinese's than to Science's.
+
+### 11.1 The source files
+
+Already split into three PDFs, which is the shape §10.2 calls a gift:
+
+```
+papers/english/Booklet-A/<paper>.pdf    10 pages
+papers/english/Booklet-B/<paper>.pdf     8 pages
+papers/english/Answers/<paper>.pdf       3 pages
+```
+
+`build/en_corpus.py` finds and copies them. It is named `en_corpus` rather than
+`english` because `app/english.py` exists: the two never share a path when the
+app runs, but the tests put `build/` and `app/` on one, and two modules called
+`english` shadow each other silently — which is how fourteen passing tests
+became fourteen failures with no code change.
+
+- **Only complete triples are ingested.** The same folders hold whole-exam
+  compilations (`P6_English_Prelim_2026_Nanyang_Exam_Papers1.pdf`), which are the
+  only form the 2020–2025 years have. Splitting one is the job `cn_split.py` does
+  for Chinese and it is not built, so a compilation is reported as skipped rather
+  than half-ingested.
+- **Filenames disagree between years** — 2024 and 2025 print `Prelim Exam-`, 2026
+  prints `Prelim-` — so "Exam" is optional, the same trap §10.2 records.
+- **Pure scans.** One Booklet A page carries a partial Latin-only OCR text layer,
+  and it is mangled exactly the way the Chinese compilations' is
+  (`ȧitpeted a'nd. it dieȨ .ȩ.Ȫȫrtl}!`). Never read it; Vision is the only source.
+
+`build/en_unpack.py` renders into **three roots of its own** — `work-en-a`,
+`work-en-b`, `work-en-ans`. Separate from Science's for a reason that is not the
+copyright one: `papers.discover(WORK_A)` is how the app finds Science's papers,
+and an English paper rendered into that root would appear inside the Science
+subject with a Science key looked up for it. The subjects share the *paper id*
+convention (`2026-prelim-nanyang`, §10.1) and nothing else. `work-en-ans` is
+separate for §7.1's reason: no route reads it, so no URL reaches the key.
+
+### 11.2 Booklet A: four sections, four range statements
+
+25 questions, 25 marks, **1 mark each** — not Science's 2 (§1.5).
+
+| § | Section | Questions | Marks | Pages |
+|---|---|---|---|---|
+| Grammar | block MCQ | 1–10 | 10 | 2–3 |
+| Vocab | block MCQ | 11–15 | 5 | 4 |
+| Vocab Cloze | blanks in a passage | 16–20 | 5 | 5 |
+| Visual Text | about a poster and an article | 21–25 | 5 | 9, with 6–7 as context |
+
+**The paper states its shape once per section, and that is a better source than
+Science's single statement, not a worse one.** `index_mcq.reconcile_structure`
+exists because a Science paper says its shape once and the reading of it may be
+wrong (§10.3); here four independent statements each carry their own total, every
+one is checked against what was found, and a paper that indexes at all indexes
+right. That is §7.3's discipline, arrived at again.
+
+`build/en_index.py`. Two things Science's Booklet A never has to handle, and both
+are read off the paper rather than assumed:
+
+1. **A question can be unanswerable from its own page.** Q21–25 ask about a poster
+   and an article printed three pages earlier, and the page introducing them says
+   so — "Study the poster (Text 1) … and answer questions 21 to 25". Those pages
+   become the section's `context_pages` and are shown with every question in it.
+   Get this wrong and the student is shown a question about a text they cannot
+   see, which looks like nothing being wrong at all.
+
+   The statement is told from a section header by *not being one*: the header
+   says "for each question", this says "answer questions". And from the Booklet B
+   handover below by the range it names being one this booklet actually asks.
+
+   **The boundary is the top of the page, not the row that matched.** Vision
+   splits the sentence across two rows — "…and answer" / "questions 21 to 25." —
+   so the row that matches is the second, and cutting there leaves the first row
+   inside Q20's page span, putting a page of the next section's material under the
+   question being answered. Stimulus material always starts a fresh page, because
+   it *is* a full page of poster or article.
+
+2. **Booklet A's last page belongs to Booklet B.** The paper prints Booklet B's
+   comprehension passage at the back of Booklet A and says so: "Refer to the
+   passage below when you answer questions 66 to 75 in Booklet B." Left alone it
+   is swept into Q25's page span. The handover is searched for only *after* the
+   last question found — the cover's "Total Time for Booklets A and B" would
+   otherwise truncate the booklet at page one.
+
+A furniture-only page is dropped from every span: there is a `BLANK PAGE` between
+the poster and the questions about it, and a blank page shown to a child reads as
+something failing to load.
+
+**Vision loses four of the twenty-five question numbers** (Q3, Q5, Q8, Q9) and
+tesseract finds two of them; the other two are recovered from the option block.
+That is §1.5.1 unchanged, which is why the machinery is now shared —
+`build/mcq_runs.py`, imported by both indexers. Bounding it to a section needs
+nothing new: each section hands it a *slice* of the paper's rows, so `len(rows)`
+is the end of the section rather than the end of the world.
+
+**An incomplete option read is a note, not a warning.** Q16, Q17 and Q23 come
+back with fewer than four `(n)` markers — "(1)" reads as "trim", Q17's "(1)" and
+"(2)" merge into "(12)" — and nothing downstream reads that list. `needs_review`
+drives a banner in the app, and a banner that is always on for a correctly
+indexed paper teaches the student to ignore the one that matters.
+
+### 11.3 Booklet B: five sections, and two state no range
+
+65 marks, and the cover's score box prints "Booklet B / 65" — an independent check
+that the sections add up.
+
+| Section | Questions | Marks | Answered with |
+|---|---|---|---|
+| Grammar cloze | 26–35 | 10 | a letter A–Q from a printed bank |
+| Editing | 36–45 | 10 | the corrected word |
+| Comprehension cloze | 46–60 | 15 | one word per blank |
+| Synthesis & transformation | 61–65 | 10 | the sentence rewritten |
+| Comprehension | 66–75 | 20 | **not built** |
+
+Every question in the first three is a blank *inside a passage*, so the page is
+the unit of display — §7.3's conclusion for 短文填空, reached the same way.
+
+**Editing and the comprehension cloze state no question range.** They print only
+"Write the correct word in each of the boxes. (10 marks)" and "Fill in each blank
+with a suitable word. (15 marks)"; the numbers are `(37)`, `(40)` in the margin
+and Vision reads about half of them. So the range is derived, and **the derivation
+is arithmetic rather than assumption**: a run of sections stating no range is
+bounded by the stated ranges either side — Q26–35 before, Q61–65 after — and the
+25 questions between them must equal 10 + 15. When it does, one mark per blank is
+forced and the split falls out. When it does not, nothing is filled in.
+
+That check is what makes it safe rather than plausible. §7.3 warns against taking
+a section's last question from the highest number seen, because a missed question
+moves it silently; nothing here reads a number to find a boundary, and the numbers
+Vision *did* read only corroborate.
+
+**The section's mark total is the anchor, not its range.** Every section prints
+one; only three print a range. Per-question allocations inside the comprehension
+are written `[2m]` and `(1m)` and are deliberately not matched.
+
+Two traps, both hit:
+
+- **"Do not write in this space" runs down the outer margin of every page**, and
+  `merge_rows` joins it into whichever instruction row it sits level with:
+  "rewrite the given sentence(s) using the word(s) **Do not write in this**
+  provided". It is a separate column and is treated as one — §1.6's lesson about
+  the answer pages' gutter, one booklet over.
+- **Dropping the margin is not enough; the rows must then be re-banded.** The
+  right-aligned "(10 marks)" sits a few pixels higher than the sentence it shares
+  a row with, so ordering the surviving lines by `top` lands it mid-sentence —
+  "Write the **(10 marks)** correct word" — which matches none of the
+  response-mode patterns and turns a built section into an unbuilt one with no
+  error anywhere. §7.4's failure, one axis over, and the note reporting the
+  unbuilt section is what caught it.
+
+**How a section is answered is read from its printed instruction**, and anything
+unmatched falls through to `not_built` rather than to a guess: an app that offers
+the wrong kind of answer box is worse than one that offers none. The order
+matters — the letter-bank cloze also says "word", so it is tested first; read as
+a word question its answers would be compared against "had" and never "F".
+
+**The comprehension is not built, and that is the honest state.** Its answers are
+tables, ticks and explanations; marking them needs the hand-authored rubric §3
+describes and §10.5 explains is not worth faking. Its pages are still served —
+the booklet is the booklet — but it carries no answer card, and the answer list
+names it once at the foot rather than as ten rows of apology.
+
+### 11.4 The answer keys, which are two different problems on one sheet
+
+Booklet A's key and Booklet B's are printed on the same three pages and read
+nothing alike, which is why they are two modules.
+
+**Booklet A: `build/en_key.py`, a ruled grid of isolated digits.** Read as text it
+is hopeless — Vision returns `1. 2 6. 11. 16. 2 21. 2` for a whole row, the
+question numbers largely intact and half the answers gone. That is §10.4's
+situation, where two Science schools printed a grid and a person had to read it.
+The difference is that this grid is **ruled**, and rules are geometry rather than
+glyphs: the tables, their columns and their rows are found exactly, and then each
+answer is one isolated character in a known box.
+
+Four things that had to be got right:
+
+- **A rule is a *continuous* dark run, not a dark column.** Five stacked "4"s
+  share an x and read as a column divider on a plain density test; a printed rule
+  is unbroken and the digits' strokes are not.
+- **The two kinds of rule do not span the same thing.** Row rules run the full
+  width of a table; *column* rules run only through the data rows, because the
+  header cell spans the whole table. So the columns are looked for inside the data
+  region, not over the table's full height.
+- **The gap between two tables is narrower than the cells inside them** — 50px
+  against 85–267 — so nothing about the spacing tells them apart. What does is
+  whether a horizontal rule runs between two adjacent vertical ones.
+- **Crop to the cell, then trim to the ink.** Padding in by a fixed few pixels
+  clipped the top of Q5's "3", which sits a little high in its cell, and a clipped
+  glyph is read by neither engine.
+
+Safety comes from three places, and it matters more here than anywhere else in
+the project for §1.6.1's reason — there is no partial credit to soften a wrong
+key, and the child is simply told they were wrong when they were right:
+
+1. **The geometry is confirmed, not assumed.** A row is read only when its
+   question-number cell reads the number the sequence expects. That catches a
+   column or row out by one, which would produce a full, plausible and entirely
+   wrong key.
+2. **A digit is accepted only on agreement** — each cell read six ways, at least
+   two agreeing, and no reading offering a *different* option in 1–4. tesseract
+   reads Q21's "2" as "9"; 9 is not an option, so it can neither win nor
+   contradict.
+3. **What is refused goes to a person**, via `review/en-mcq-key.json`, on §10.4's
+   exact terms: it fills a gap and can never overrule the scan, and a disagreement
+   fails the extraction outright.
+
+The grid reader read **22 of 25 cells unaided and agrees with the eye reading on
+every one**; Q11, Q17 and Q24 are in the review file, each read twice from the
+300 dpi render. The key also prints the section names — "Grammar", "Vocab",
+"Vocab Cloze", "Visual Text" — which the question paper does not, so they are read
+across into the UI. They are not answers, and a name is worth more to a child than
+"Questions 16–20"; nothing else crosses.
+
+**Booklet B: `build/en_key_b.py`, columns of words.** The opposite problem. Vision
+reads words very well — all 35 cloze and editing answers come back cleanly at page
+scale — so what is needed is not a better reader but the right geometry, and here
+that is columns, the discipline `segment_answers.py` applies to Science's
+two-column answer pages.
+
+Rule detection is deliberately *not* used even though these tables are ruled too:
+shaded number cells and a heavy diagonal watermark break the rules into segments,
+and the reader that finds Booklet A's cells exactly finds nothing at all in this
+half of the same page.
+
+Two traps:
+
+- **Booklet A's numbers must be filtered out before the columns are built.** Its
+  key is on the same sheet in four more columns, and its Q11–15 sit 55px from
+  Booklet B's Q36–45 — close enough to cluster with them, which gives a column a
+  bound to the left of its own text and it comes back empty. It then looks like a
+  page Vision failed to read.
+- **A band re-read must be bounded to its column.** Q64's model answer runs under
+  a solid black watermark blob and Vision returns nothing for the row; re-read as
+  its own crop at 2× it comes back complete. Re-read at full page width it comes
+  back as all three tables' answers filed under Q64.
+
+All 40 answers read, one by re-read. **The grammar cloze prints both halves of its
+answer** — "F (had)" — so both are accepted; Q26 prints two lines, "F (had)" and
+"G (have)", because either fits the blank.
+
+### 11.5 Marking — how English differs from §3 and §7.6
+
+- **§3.1 chains, §3.3 the contextual gate: do not apply.** There is no cause and
+  effect to chain and no textbook recital to guard against.
+- **§3.2 ignore spelling: inverts, and this is the only place in the project it
+  does.** Editing and cloze questions assess the word itself, so "commemerate" is
+  wrong for "commemorate" — marking it right would teach the misspelling with
+  full confidence. What is *not* penalised is case: "despite" for "Despite" earns
+  the mark and is fed back as a note, because the child has the English right and
+  the convention is worth teaching rather than deducting for.
+- **§3.4 marks map to keypoint count: holds, and is printed** — one mark per blank
+  across Q1–60, two per question for synthesis and comprehension.
+
+Answers are typed and chosen, never spoken, for §7.6's reasons plus one of its
+own: a one-word cloze answer hinges on the exact word, and asking a model to
+judge it is less reliable than comparing strings.
+
+| mode | questions | marked by |
+|---|---|---|
+| `choose` | Booklet A Q1–25 | the key — no API key, never fails |
+| `letter` | Q26–35 | string comparison against the letter or the word |
+| `word` | Q36–60 | string comparison |
+| `sentence` | Q61–65 | the student, against the model answer |
+| `not_built` | Q66–75 | nothing; read and answered on paper |
+
+**Nothing is marked until the booklet is finished**, and the whole booklet is
+submitted in one request. §7.6's argument applies unchanged: marking each blank as
+it is typed turns a 40-question booklet into 40 little tests, and a running total
+invites watching the number instead of reading the passage.
+
+### 11.6 The app
+
+**The booklet is chosen before the paper.** Science asks for the paper and then
+greys out a booklet it has no index for; English asks for the booklet and then
+lists only the papers built for it. That is the better order once the two halves
+of a subject are backfilled at different rates — a paper offered and then refused
+is a worse step than one never offered — and it is declared by the subject
+(`mode_first`) rather than hardcoded in the front end.
+
+The practice screen is the Chinese one's shape, not Science's, and shares its CSS:
+the booklet scrolls on one side and every answer card sits on the other. Both
+subjects put their questions inside passages, so both are the same *kind* of
+screen, and the stylesheet names both prefixes rather than carrying two copies.
+
+A card links to **every page its question needs, the stimulus first**. Q21–25 link
+to pages 6, 7 and 9; a link to the question's own page alone would send the
+student to a page they cannot answer from.
+
+**A one-word answer gets a one-line box and a sentence gets a textarea.** The
+shape of the box is the plainest thing on screen saying how much to write, and a
+Booklet B page mixes the two a dozen times over.
+
+### 11.7 Progress
+
+`/api/english/progress`, its own endpoint for §8's reason. The weak-area axis is
+the **section** — grammar, vocabulary cloze, editing, synthesis — because that is
+the unit an English teacher would name and the unit the paper is built from.
+Neither Science's chains and facets nor Chinese's response modes fit.
+
+The chart is the shared one: `db.by_paper_and_day` and `db.kinds_present`, with
+the bar split by **booklet**, which is also how the two are sat. Coverage counts
+only what the app marks — counting the comprehension as untouched work would make
+every finished booklet look two thirds done.
+
+### 11.8 Build order
+
+```bash
+build/en_corpus.py    # OneDrive -> papers/english/   (--dry-run to inspect)
+build/en_unpack.py    # PDFs     -> work-en-a, work-en-b, work-en-ans
+build/en_index.py     # Booklet A pages -> questions.json
+build/en_key.py       # answers  -> mcq-answers.json  (needs en_index first)
+build/en_index_b.py   # Booklet B pages -> questions.json
+build/en_key_b.py     # answers  -> answers.json      (needs en_index_b first)
+```
+
+Both key steps run after their index for the reason §1.6.1 and §7.7 already give:
+a key short at the *end* leaves no gap in its own sequence for anyone to notice,
+so only the booklet's own question set reveals it.
+
+### 11.9 Not built
+
+- **The comprehension section** (§11.3), and with it the comprehension half of the
+  answer key — reading a key nothing uses would only invite it to be trusted later.
+- **The 2020–2025 papers**, which exist only as whole-exam compilations. Splitting
+  one is `cn_split.py`'s job for Chinese and would be a fifth English module here.
+- **Paper 1 (composition)** and the oral.
+- **Grader consistency (§6.3) is unmeasured**, as it is for the other two subjects
+  — though English needs it least, since nothing it marks goes near a model.
