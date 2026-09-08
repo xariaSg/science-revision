@@ -1,0 +1,137 @@
+{
+  "_note": [
+    "Booklet A / MCQ answers for the 2026 Chinese prelim corpus, read off the",
+    "scan by eye for every one of the ten schools -- not just the gaps.",
+    "",
+    "Unlike the Science and English prelim keys (review/prelim-mcq-key.json,",
+    "review/en-mcq-key.json), none of these ten schools' keys is typed: every one",
+    "is a scanned grid, and nine of the ten carry a heavy diagonal watermark",
+    "('SgTestPaper.com' / 'More Papers') that sits directly across several answer",
+    "cells on every school's grid. A position-based OCR reader tuned against one",
+    "school's cell geometry would need retuning against the other nine's, and the",
+    "watermark defeats plain OCR on the cells it crosses regardless -- so the whole",
+    "grid was read visually against the rendered 300 dpi page instead of building",
+    "a geometry reader for a one-off table shape repeated across ten schools.",
+    "",
+    "Where the watermark crosses a cell, the digit is still legible: the white",
+    "typeface prints through the black watermark shape with the digit's ink",
+    "surviving as a white cutout, confirmed against a 1.2x-2x crop of that cell",
+    "for every obscured answer below. TaoNan and RedSwastika have no watermark at",
+    "all and were read directly off the full page.",
+    "",
+    "See CLAUDE.md section 1.6.1 for why a wrong digit here is the worst failure",
+    "in this project: there is no partial credit to soften it, and the child is",
+    "simply told she was wrong when she was right. Every entry below was read",
+    "once, then the obscured cells were re-read a second time from a zoomed crop",
+    "before being committed.",
+    "",
+    "build/cn_prelim_key.py treats this file as authoritative for these ten",
+    "schools (there is no competing OCR read to cross-check it against, unlike",
+    "prelim_key.py's schools where most of the corpus was typed) and validates it",
+    "only against build/cn_prelim_index.py's question inventory -- every answer",
+    "must be within the option range indexing found for that question, and every",
+    "question the paper actually asks must have an entry."
+  ],
+  "2026-prelim-acsj": {
+    "school": "ACSJ",
+    "read": "by eye from work-cn/2026-prelim-acsj/answer-pages/answer-001.png",
+    "answers": {
+      "1": 1, "2": 4, "3": 1, "4": 3, "5": 1, "6": 2, "7": 1, "8": 3, "9": 4, "10": 3,
+      "11": 4, "12": 3, "13": 3, "14": 2, "15": 1, "16": 1, "17": 2, "18": 3, "19": 1, "20": 2,
+      "21": 1, "22": 2, "23": 3, "24": 4, "25": 1,
+      "26": 4, "27": 6, "28": 1, "29": 7, "30": 4, "31": 3, "32": 2
+    }
+  },
+  "2026-prelim-ai-tong": {
+    "school": "AiTong",
+    "read": "by eye from work-cn/2026-prelim-ai-tong/answer-pages/answer-001.png",
+    "answers": {
+      "1": 3, "2": 1, "3": 2, "4": 2, "5": 1, "6": 4, "7": 1, "8": 3, "9": 3, "10": 4,
+      "11": 3, "12": 2, "13": 4, "14": 1, "15": 4,
+      "16": 2, "17": 1, "18": 4, "19": 2, "20": 1,
+      "21": 3, "22": 4, "23": 2, "24": 2, "25": 3,
+      "26": 2, "27": 4, "28": 6, "29": 8,
+      "30": 3, "31": 2, "32": 4
+    }
+  },
+  "2026-prelim-henry-park": {
+    "school": "HenryPark",
+    "read": "by eye from work-cn/2026-prelim-henry-park/answer-pages/answer-001.png",
+    "answers": {
+      "1": 3, "2": 1, "3": 4, "4": 1, "5": 2, "6": 1, "7": 2, "8": 2, "9": 3, "10": 4,
+      "11": 2, "12": 2, "13": 1, "14": 2, "15": 4, "16": 1, "17": 2, "18": 2, "19": 3, "20": 4,
+      "21": 2, "22": 3, "23": 4, "24": 3, "25": 2,
+      "26": 6, "27": 4, "28": 8, "29": 5, "30": 3, "31": 3, "32": 4
+    }
+  },
+  "2026-prelim-nan-hua": {
+    "school": "NanHua",
+    "read": "by eye from work-cn/2026-prelim-nan-hua/answer-pages/answer-001.png",
+    "answers": {
+      "1": 3, "2": 1, "3": 2, "4": 1, "5": 3, "6": 1, "7": 2, "8": 3,
+      "9": 2, "10": 4, "11": 4, "12": 3, "13": 1, "14": 3, "15": 2, "16": 3,
+      "17": 1, "18": 2, "19": 3, "20": 4, "21": 2, "22": 4, "23": 3, "24": 1,
+      "25": 4, "26": 4, "27": 6, "28": 7, "29": 8, "30": 2, "31": 4, "32": 2
+    }
+  },
+  "2026-prelim-nanyang": {
+    "school": "Nanyang",
+    "read": "by eye from work-cn/2026-prelim-nanyang/answer-pages/answer-001.png",
+    "answers": {
+      "1": 1, "2": 3, "3": 2, "4": 1, "5": 2, "6": 2, "7": 4, "8": 1, "9": 2, "10": 3,
+      "11": 2, "12": 4, "13": 4, "14": 3, "15": 4, "16": 2, "17": 1, "18": 4, "19": 3, "20": 2,
+      "21": 2, "22": 1, "23": 1, "24": 4, "25": 3,
+      "26": 4, "27": 2, "28": 5, "29": 6, "30": 3, "31": 4, "32": 2
+    }
+  },
+  "2026-prelim-plmgs": {
+    "school": "PLMGS",
+    "read": "by eye from work-cn/2026-prelim-plmgs/answer-pages/answer-001.png",
+    "answers": {
+      "1": 4, "2": 2, "3": 4, "4": 4, "5": 1, "6": 3, "7": 4, "8": 1, "9": 3, "10": 2,
+      "11": 4, "12": 4, "13": 3, "14": 1, "15": 1, "16": 1, "17": 1, "18": 2, "19": 1, "20": 1,
+      "21": 3, "22": 4, "23": 3, "24": 1, "25": 2,
+      "26": 3, "27": 4, "28": 6, "29": 8, "30": 3, "31": 3, "32": 4
+    }
+  },
+  "2026-prelim-raffles": {
+    "school": "Raffles",
+    "read": "by eye from work-cn/2026-prelim-raffles/answer-pages/answer-001.png",
+    "answers": {
+      "1": 1, "2": 4, "3": 1, "4": 3, "5": 4, "6": 2, "7": 2, "8": 4, "9": 3, "10": 2,
+      "11": 1, "12": 3, "13": 4, "14": 1, "15": 4, "16": 4, "17": 1, "18": 2, "19": 3, "20": 2,
+      "21": 4, "22": 4, "23": 1, "24": 2, "25": 3,
+      "26": 1, "27": 8, "28": 6, "29": 2, "30": 2, "31": 3, "32": 2
+    }
+  },
+  "2026-prelim-red-swastika": {
+    "school": "RedSwastika",
+    "read": "by eye from work-cn/2026-prelim-red-swastika/answer-pages/answer-001.png (no watermark)",
+    "answers": {
+      "1": 3, "2": 1, "3": 2, "4": 2, "5": 1, "6": 2, "7": 3, "8": 4, "9": 1, "10": 4,
+      "11": 3, "12": 4, "13": 1, "14": 3, "15": 4, "16": 1, "17": 3, "18": 2, "19": 4, "20": 3,
+      "21": 2, "22": 1, "23": 2, "24": 4, "25": 3,
+      "26": 5, "27": 1, "28": 3, "29": 8, "30": 4, "31": 2, "32": 3
+    }
+  },
+  "2026-prelim-st-nicholas": {
+    "school": "StNicholas",
+    "read": "by eye from work-cn/2026-prelim-st-nicholas/answer-pages/answer-001.png",
+    "answers": {
+      "1": 4, "2": 3, "3": 2, "4": 3, "5": 4, "6": 3, "7": 1, "8": 2, "9": 2, "10": 4,
+      "11": 2, "12": 4, "13": 4, "14": 3, "15": 3, "16": 2, "17": 4, "18": 2, "19": 3, "20": 1,
+      "21": 2, "22": 4, "23": 1, "24": 1, "25": 2,
+      "26": 6, "27": 1, "28": 8, "29": 5, "30": 4, "31": 1, "32": 4
+    }
+  },
+  "2026-prelim-tao-nan": {
+    "school": "TaoNan",
+    "read": "by eye from work-cn/2026-prelim-tao-nan/answer-pages/answer-001.png (no watermark; text layer disagreed with the ruled table on Q30/Q31 and was discarded in favour of the visual read)",
+    "answers": {
+      "1": 1, "2": 3, "3": 1, "4": 4, "5": 2, "6": 4, "7": 4, "8": 3, "9": 1, "10": 3,
+      "11": 2, "12": 3, "13": 4, "14": 1, "15": 2, "16": 1, "17": 2, "18": 3, "19": 4, "20": 1,
+      "21": 4, "22": 2, "23": 3, "24": 2, "25": 4,
+      "26": 6, "27": 5, "28": 2, "29": 8, "30": 1, "31": 2, "32": 4
+    }
+  }
+}

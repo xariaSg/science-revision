@@ -66,10 +66,25 @@ WORK_EN_A = REPO / "work-en-a"
 # optional: Methodist Girls' Q16-20 header OCRs as "-or each question from 16 to
 # 20", the dash replacing the letter rather than dropping it outright, and
 # CLAUDE.md 10.3 records the same class of failure losing "F" entirely on
-# Henry Park's Science prelim. Requiring only "or each question(s) ... N to M"
-# is specific enough that nothing else in a paper reads as one by accident.
-SECTION_RE = re.compile(r"f?or\s+(?:each\s+)?questions?\s+(?:from\s+)?"
-                        r"(?P<first>\d{1,3})\s*(?:to|[-–—])\s*(?P<last>\d{1,3})\b",
+# Henry Park's Science prelim.
+#
+# Ai Tong loses the leading word more completely still -- "ur each question
+# from 16 to 20", with the "F" and the "o" both gone -- which even the
+# optional "f?or" cannot absorb, since "ur" is not "or" with a letter missing,
+# it is a different word. The two alternatives below split on whether "each"
+# survived: when it did, whatever precedes it (present, degraded, or entirely
+# wrong like "ur") is irrelevant and is not required at all; when it did not
+# ("For questions 21 to 25"), "for/or" is the only anchor left and stays
+# mandatory. A bare "questions N to M" with neither survives as no match,
+# which is what keeps "answer questions 21 to 25" and "...questions 66 to 75
+# in Booklet B" -- both real sentences in this booklet, meaning something
+# else entirely -- from being read as a section header.
+#
+# Ai Tong also OCRs "to" as "lo" on its Q11-15 header ("from 11 lo 15") --
+# read as a lowercase "l" where the scan shows a "t" -- so "lo" joins the
+# accepted separators alongside the dash forms.
+SECTION_RE = re.compile(r"(?:(?:f?or\s+)?each|f?or)\s+questions?\s+(?:from\s+)?"
+                        r"(?P<first>\d{1,3})\s*(?:to|lo|[-–—])\s*(?P<last>\d{1,3})\b",
                         re.I)
 # "(10 marks)", "[5 marks]", "5 marks" bare on a line of its own.
 MARKS_RE = re.compile(r"[(\[{]?\s*(?P<marks>\d{1,3})\s+marks?\b", re.I)
@@ -78,6 +93,16 @@ MARKS_RE = re.compile(r"[(\[{]?\s*(?P<marks>\d{1,3})\s+marks?\b", re.I)
 # read as a plain "N marks" phrase, "10 x 1 mark" would report 1, not 10.
 SECTION_TOTAL_RE = re.compile(r"(?P<count>\d{1,3})\s*[x×]\s*(?P<per>\d{1,3})"
                               r"\s*marks?\b", re.I)
+# PLMGS states every section heading as "(N x per [mark] = total marks)" --
+# "SECTION A: GRAMMAR (10 x 1 = 10 marks)", "Section C: Vocabulary Cloze
+# (5 x 1 mark = 5 marks)" -- which SECTION_TOTAL_RE cannot read: the "="
+# sitting between the per-question value and "marks" breaks its requirement
+# that they be adjacent. Read directly instead of computed, since the total
+# is printed in as many words and multiplying it back out risks the same
+# transcription slip it is meant to catch.
+SECTION_EQUALS_RE = re.compile(
+    r"\d{1,3}\s*[x×]\s*\d{1,3}\s*(?:marks?\s*)?=\s*(?P<marks>\d{1,3})\s*marks?\b",
+    re.I)
 # A range named by something that is not a section header. Two of them appear in
 # this booklet and they mean opposite things, which is why the range they name is
 # what separates them: "...and answer questions 21 to 25" introduces the material
@@ -166,15 +191,28 @@ def read_sections(rows: list[tuple[int, Line]]) -> list[dict]:
                       "instruction": line.text.strip(), "marks": None})
     found.sort(key=lambda section: section["row"])
 
+    # Nothing on the far side of the first "Booklet B" mention can be this
+    # booklet's own mark total. Nan Hua's Q21-25 states none of its own
+    # anywhere near its header, and without this bound the search for one
+    # keeps going past the handover sentence and picks up Booklet B's
+    # Comprehension section's "(20 marks)" instead -- a real figure, just not
+    # this section's.
+    handover_row = next((index for index, (_, line) in enumerate(rows)
+                         if BOOKLET_B_RE.search(line.text)), len(rows))
+
     for position, section in enumerate(found):
-        end = (found[position + 1]["row"] if position + 1 < len(found)
-               else len(rows))
+        end = min((found[position + 1]["row"] if position + 1 < len(found)
+                   else len(rows)), handover_row)
         heading = section["row"] - 1
         if heading >= 0:
             total_match = SECTION_TOTAL_RE.search(rows[heading][1].text)
             if total_match:
                 section["marks"] = (int(total_match.group("count"))
                                     * int(total_match.group("per")))
+            else:
+                equals_match = SECTION_EQUALS_RE.search(rows[heading][1].text)
+                if equals_match:
+                    section["marks"] = int(equals_match.group("marks"))
         if section["marks"] is None:
             for index in range(section["row"], end):
                 match = MARKS_RE.search(rows[index][1].text)
@@ -193,6 +231,25 @@ def read_sections(rows: list[tuple[int, Line]]) -> list[dict]:
             # draws for Science, so a silently-invented total is never confused
             # with one the paper actually states.
             section["marks"] = section["count"]
+
+    # A header's own digits can be misread even when the header itself is
+    # found. Raffles' Vocabulary Cloze section OCRs as "questions 18 to 20",
+    # losing two questions its own margin numbers them "16" and "17" plainly
+    # -- the "1" and "6" of "16" survive at the question's own left margin but
+    # not inside the header sentence's run of digits. Sections in this corpus
+    # never actually skip a number between one stated range and the next, so
+    # a gap directly against the previous section is closed -- but only when
+    # doing so makes this section's own stated marks divide evenly across the
+    # widened question count, which a genuinely separate, unheaded section
+    # (this module's fill_gaps) has no reason to satisfy by coincidence.
+    for previous, section in zip(found, found[1:]):
+        if section["first"] <= previous["last"] + 1:
+            continue
+        widened_first = previous["last"] + 1
+        widened_count = section["last"] - widened_first + 1
+        if (section["marks"] is not None and widened_count > 0
+                and section["marks"] % widened_count == 0):
+            section["first"], section["count"] = widened_first, widened_count
     return found
 
 
@@ -319,6 +376,115 @@ def find_questions(rows: list[tuple[int, Line]], manifest: dict, work: Path,
     return [(start + index, page, number) for index, page, number in chosen], repairs
 
 
+def band_for_each(sections: list[dict], rows: list[tuple[int, Line]]) -> None:
+    """Attach `search_start` / `search_end` to every section, in place.
+
+    Lifted out of the main per-section loop so a gap between two headers
+    (`fill_gaps`, below) can share a real section's own band -- computed
+    exactly the way the loop always computed it inline -- rather than only
+    ever reading from its own row, which a section with no header has none of.
+    """
+    ordered = sorted(sections, key=lambda s: s["row"])
+    for position, section in enumerate(ordered):
+        section["search_start"] = section["row"] + 1
+        section["search_end"] = (ordered[position + 1]["row"]
+                                 if position + 1 < len(ordered) else len(rows))
+
+
+def fill_gaps(sections: list[dict], rows: list[tuple[int, Line]],
+             manifest: dict, work: Path,
+             loose: list[tuple[int, int, int, int]]) -> list[dict]:
+    """A synthetic section for a run of questions no header names at all.
+
+    ACSJ's Q11-15 header is a complete OCR dropout -- no trace of "For each
+    question..." survives anywhere near its page, not even garbled -- and
+    PLMGS never states one for Q1-10 in the first place, printing only
+    "SECTION A: GRAMMAR (10 x 1 = 10 marks)" with no "for each question"
+    sentence at all. Both leave a run of question numbers between two
+    sections the paper *did* state (or before the first one). Booklet A's
+    sections are contiguous everywhere this corpus states more than one of
+    them, so the numbers between two real sections belong to nothing else,
+    and read_sections.SECTION_RE.gap-closing already ruled out the cheaper
+    explanation -- a misread digit on an existing header -- before this runs.
+
+    A gap between two real sections shares the earlier one's own search band:
+    nothing else is ever printed there, so no corroboration is required. A
+    leading gap has no real section bounding it on the left, so it is
+    accepted only when a "SECTION ... (n marks)"-style heading is found
+    inside it -- without that, a cover page's own numbered instructions
+    ("1. Write your name...") would be indistinguishable from real questions
+    1-10, the same trap CLAUDE.md section 1.5 documents for Science.
+    """
+    band_for_each(sections, rows)
+    ordered = sorted(sections, key=lambda s: s["first"])
+
+    gaps: list[tuple[int, int, int, int]] = []   # (first, last, start, end)
+    if ordered and ordered[0]["first"] > 1:
+        gaps.append((1, ordered[0]["first"] - 1, 0, ordered[0]["row"]))
+    for previous, section in zip(ordered, ordered[1:]):
+        if section["first"] > previous["last"] + 1:
+            gaps.append((previous["last"] + 1, section["first"] - 1,
+                        previous["search_start"], previous["search_end"]))
+
+    extra: list[dict] = []
+    for first, last, start, end in gaps:
+        found, _ = find_questions(rows, manifest, work, loose,
+                                  {"first": first, "last": last}, start, end)
+        if not found:
+            continue
+
+        leading = not any(s["last"] == first - 1 for s in ordered)
+
+        # A heading is searched for only ahead of a *leading* gap. A between
+        # gap's band is borrowed from the real section before it (there is
+        # nothing else to search), and that band's own opening rows are that
+        # section's own trailing "(N marks)" -- ACSJ's Q11-15 gap sits right
+        # after Q1-10's "(10 marks)" and would otherwise inherit it, marking
+        # a five-question section worth ten. A leading gap has nothing before
+        # it, so nothing else could be found there to misattribute.
+        marks = None
+        if leading:
+            for index in range(start, end):
+                total_match = SECTION_TOTAL_RE.search(rows[index][1].text)
+                if total_match:
+                    marks = int(total_match.group("count")) * int(total_match.group("per"))
+                    break
+            if marks is None:
+                for index in range(start, end):
+                    equals_match = SECTION_EQUALS_RE.search(rows[index][1].text)
+                    if equals_match:
+                        marks = int(equals_match.group("marks"))
+                        break
+            if marks is None:
+                for index in range(start, end):
+                    match = MARKS_RE.search(rows[index][1].text)
+                    if match:
+                        marks = int(match.group("marks"))
+                        break
+        marks_source = "stated" if marks is not None else "assumed"
+
+        if leading and marks_source != "stated":
+            continue   # nothing corroborates this range; too easy to confuse
+                       # with the cover's own numbered instructions
+        if marks is None:
+            marks = last - first + 1
+
+        # A plain, standard-phrased instruction rather than an explanation of
+        # how this section was found: `instruction` is shown to the child
+        # verbatim (english.js), and "no header states..." is a build note,
+        # not something an 11-year-old needs to read above her own questions.
+        extra.append({"row": start, "page": rows[min(start, len(rows) - 1)][0],
+                      "first": first, "last": last, "count": last - first + 1,
+                      "self_stimulus": False,
+                      "instruction": f"For each question from {first} to "
+                                     f"{last}, four options are given. One "
+                                     f"of them is the correct answer.",
+                      "marks": marks, "marks_source": marks_source,
+                      "search_start": start, "search_end": end, "derived": True})
+
+    return sorted(ordered + extra, key=lambda s: s["first"])
+
+
 def index_paper(work: Path) -> dict:
     manifest = json.loads((work / "manifest.json").read_text())
     paper = manifest.get("paper") or str(manifest["year"])
@@ -351,17 +517,18 @@ def index_paper(work: Path) -> dict:
             if match:
                 loose.append((page, word.top, word.left, int(match.group("question"))))
 
+    sections = fill_gaps(sections, rows, manifest, work, loose)
+
     asked = {n for section in sections
              for n in range(section["first"], section["last"] + 1)}
 
     # Each section runs to the next header; the last runs to the end of the paper
     # and is trimmed back to the Booklet B handover once its questions are known.
+    # A gap section shares its neighbour's band instead (fill_gaps).
     repairs: list[str] = []
     questions: dict[int, dict] = {}
     for position, section in enumerate(sections):
-        start = section["row"] + 1
-        end = (sections[position + 1]["row"] if position + 1 < len(sections)
-               else len(rows))
+        start, end = section["search_start"], section["search_end"]
         found, section_repairs = find_questions(rows, manifest, work, loose,
                                                 section, start, end)
         repairs.extend(section_repairs)
@@ -447,6 +614,11 @@ def index_paper(work: Path) -> dict:
             warnings.append(f"{label}: the paper states {section['count']} "
                             f"questions, {len(got)} were found"
                             + (f"; no question found for {missing}" if missing else ""))
+        if section.get("derived"):
+            notes.append(f"{label}: no header states this range anywhere in "
+                        f"the booklet; every question in it was found and "
+                        f"confirmed by position between the sections either "
+                        f"side (build/en_index.py's fill_gaps)")
         if section["marks_source"] == "assumed":
             notes.append(f"{label}: no mark total is printed anywhere in this "
                         f"section; assumed at 1 mark per question, which every "

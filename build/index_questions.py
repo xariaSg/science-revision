@@ -57,7 +57,13 @@ SUBPART_REACH = 0.10
 # while the Booklet B extracts render it with a stop ("37."). Requiring bare digits
 # silently dropped every question in the extracts. The consecutive-number rule below
 # is what keeps this loose pattern from matching body text.
-QUESTION_RE = re.compile(r"^(\d{1,2})\s*[.,]?$")
+# The 2026 prelims print the first sub-part with no space at all -- "31(a) Name 2
+# systems..." -- which tesseract hands back as one word, "31(a)". Without the
+# trailing group here that token matches nothing, silently dropping the question:
+# Red Swastika's Q31 and Q32 vanished this way with no gap in the sequence to
+# notice, because nothing downstream of a dropped *first* question has a
+# neighbour to recover it from.
+QUESTION_RE = re.compile(r"^(\d{1,2})\s*[.,]?(\([a-h]\))?$", re.I)
 SUBPART_RE = re.compile(r"^\(?\s*(i{1,3}|iv|v|[a-h])\s*\)$", re.I)
 ROMAN_PARTS = {"i", "ii", "iii", "iv", "v"}
 MARKS_RE = re.compile(r"\[\s*(\d)\s*]")
@@ -407,6 +413,16 @@ def index_paper(work: Path) -> dict:
                 questions[number] = {"question": number, "pages": [page],
                                      "parts": []}
                 consumed = 1
+                # "31(a)" merges the sub-part label into the same token as the
+                # question number (see QUESTION_RE above), so there is no separate
+                # "(a)" token left on the line for the loop below to find it in --
+                # recorded here the same way that loop would record it.
+                embedded = QUESTION_RE.match(head.text)
+                if embedded and embedded.group(2):
+                    current_part = embedded.group(2).strip("()").lower()
+                    questions[number]["parts"].append(
+                        {"part": current_part, "marks": None, "page": page,
+                         "marks_source": None})
 
             if current_q is None:
                 continue

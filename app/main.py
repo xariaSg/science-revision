@@ -80,14 +80,12 @@ app.include_router(english.router)
 
 # Each subject declares its own steps, so adding one does not mean teaching the
 # front end a new special case. Science splits into two booklets practised
-# separately; Chinese Paper 2 is one booklet and loads whole; English has two
-# booklets like Science and asks which *before* the paper.
-#
-# `mode_first` is that last difference. Science asks for the paper and then greys
-# out a booklet it has no index for; English asks for the booklet and then lists
-# only the papers built for it, which is the better order once the two halves of
-# a subject are backfilled at different rates -- a paper offered and then refused
-# is a worse step than one never offered.
+# separately, paper first, then booklet -- a paper offered and a booklet greyed
+# out because it is not indexed for it. English now has ten schools with both
+# booklets built for every one of them (CLAUDE.md section 11), so it follows the
+# same order rather than the booklet-first one it used while only a single
+# paper existed. Chinese Paper 2 is one booklet and loads whole, so it declares
+# no modes at all and skips the booklet step entirely.
 SUBJECTS = [
     {
         "id": "science",
@@ -100,7 +98,6 @@ SUBJECTS = [
     {
         "id": "english",
         "label": "English",
-        "mode_first": True,
         "modes": [
             {"id": "A", "label": "Booklet A", "hint": "multiple choice"},
             {"id": "B", "label": "Booklet B",
@@ -138,10 +135,10 @@ def subjects() -> list[dict]:
     built = {
         "science": science,
         "english": english.built(),
-        # Chinese is one PSLE paper a year and has no prelims, so its ids are
-        # still just years; they are stringified here so both subjects hand the
-        # front end the same kind of thing.
-        "chinese": [str(y) for y in chinese.indexed_years()],
+        # Ten schools sat their own 2026 Chinese prelim (CLAUDE.md section 12),
+        # so Chinese now has prelim ids alongside its PSLE years exactly as
+        # Science and English do -- indexed_papers() returns both.
+        "chinese": chinese.indexed_papers(),
     }
     # Which papers a subject has for each of its modes, so a subject that asks for
     # the mode first can list only the papers that mode is built for.

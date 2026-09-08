@@ -1,37 +1,35 @@
 "use strict";
 
-/* Chinese Paper 2 practice.
+/* Chinese Paper 2 practice, scoped to Booklet A.
  *
  * Science shows one question at a time, because each Booklet B question is a
  * self-contained block on its own page. Chinese cannot work that way: 短文填空
- * and 完成对话 put their questions INSIDE a passage, so Q16 is a blank in the
- * middle of a paragraph that Q17-Q20 also live in. Cropping to a question would
- * cut away the text it asks about. So the whole paper loads, the pages scroll on
- * one side, and every question's answer box sits on the other -- selecting one
- * scrolls the paper to its page rather than replacing what is shown.
+ * puts its questions INSIDE a passage, so Q16 is a blank in the middle of a
+ * paragraph that Q17-Q20 also live in. Cropping to a question would cut away
+ * the text it asks about. So the paper loads, the pages scroll on one side,
+ * and every question's answer box sits on the other -- selecting one scrolls
+ * the paper to its page rather than replacing what is shown.
  *
  * Nothing is marked until the paper is finished. Marking each answer as it is
- * given turns a 40-question paper into 40 little tests, and a running total in
- * the corner invites watching the number instead of reading the passage. So
- * answers are collected as they are given, and the marks arrive once, at the
- * end -- which is also how the real paper works.
+ * given turns a 20-odd-question paper into 20 little tests, and a running
+ * total in the corner invites watching the number instead of reading the
+ * passage. So answers are collected as they are given, and the marks arrive
+ * once, at the end -- which is also how the real paper works.
  *
- * Three ways to answer, decided by the paper rather than by preference:
- *   choose       Q1-Q32, marked against the key, no API key needed.
- *   typed        Q34-Q40. Spoken Chinese cannot distinguish 熟悉 from its
- *                homophones and these marks depend on the exact characters.
- *   self_marked  Q33, whose marks are half holistic 语言 quality that the
- *                printed rubric does not decompose.
+ * Every question here is `choose`: the server (app/chinese.py) only ever
+ * serves Booklet A, the paper's own OAS-answered sections (语文应用, 短文填空,
+ * 阅读理解一) -- marked against the key, no API key needed. 完成对话 and
+ * 阅读理解二 are past that seam and are never sent to this screen.
  */
 
 const CN = (() => {
   const els = {};
   const state = {
-    year: null, questions: [], sections: [], pageSizes: [], pages: 0, zoom: 100,
-    answers: new Map(),   // question -> { choice } | { text }
+    paper: null, label: null, questions: [], sections: [], pageSizes: [], pages: 0,
+    zoom: 100,
+    answers: new Map(),   // question -> { choice }
     results: new Map(),     // question -> marked result, once finished
-    selfMarks: new Map(),   // question -> marks the student awarded themselves
-    autoMarks: 0,           // this run's computed total, before self-marks
+    autoMarks: 0,           // this run's computed total
     available: 0,
     finished: false,
   };
@@ -40,16 +38,13 @@ const CN = (() => {
     "语文应用": "Language use",
     "短文填空": "Cloze passage",
     "阅读理解一": "Comprehension 1",
-    "完成对话": "Complete the dialogue",
-    "阅读理解二": "Comprehension 2",
   };
-  const GROUP_HINT = { A: "A组", B: "B组" };
 
   const SPLIT_KEY = "psle.cnSplitPercent";
   const SPLIT_MIN = 25, SPLIT_MAX = 70, SPLIT_DEFAULT = 50;
-  // In-progress answers survive a reload. Forty questions is a long sitting to
-  // lose to a stray refresh, and none of it is submitted until the end.
-  const answersKey = (year) => `psle.cn.${year}.answers`;
+  // In-progress answers survive a reload. A stray refresh mid-booklet
+  // shouldn't cost the sitting, and none of it is submitted until the end.
+  const answersKey = (paper) => `psle.cn.${paper}.answers`;
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -88,7 +83,7 @@ const CN = (() => {
       // lazy page is zero-high and "jump to page 15" lands near the top.
       const size = sizes.get(page);
       if (size) { img.width = size.width; img.height = size.height; }
-      img.src = `/api/chinese/papers/${state.year}/pages/${page}`;
+      img.src = `/api/chinese/papers/${state.paper}/pages/${page}`;
       img.alt = `Page ${page}`;
       img.loading = "lazy";
       img.style.width = `${state.zoom}%`;
@@ -134,20 +129,20 @@ const CN = (() => {
 
   function saveAnswers() {
     try {
-      localStorage.setItem(answersKey(state.year),
+      localStorage.setItem(answersKey(state.paper),
         JSON.stringify([...state.answers]));
     } catch { /* private mode */ }
   }
 
   function loadAnswers() {
     try {
-      const raw = localStorage.getItem(answersKey(state.year));
+      const raw = localStorage.getItem(answersKey(state.paper));
       state.answers = new Map(raw ? JSON.parse(raw) : []);
     } catch { state.answers = new Map(); }
   }
 
   function clearAnswers() {
-    try { localStorage.removeItem(answersKey(state.year)); } catch { /* private */ }
+    try { localStorage.removeItem(answersKey(state.paper)); } catch { /* private */ }
   }
 
   /* ------------------------------------------------------------ answer cards */
@@ -173,8 +168,7 @@ const CN = (() => {
     body.className = "cn-card-body";
     el.append(body);
 
-    if (question.response_mode === "choose") chooseWidget(question, body, el);
-    else writtenWidget(question, body, el);
+    chooseWidget(question, body, el);
     body.append(feedbackSlot());
 
     el.addEventListener("click", (event) => {
@@ -214,29 +208,6 @@ const CN = (() => {
     if (saved) cardEl.classList.add("answered");
   }
 
-  function writtenWidget(question, body, cardEl) {
-    const box = document.createElement("textarea");
-    box.className = "cn-answer";
-    box.rows = question.marks >= 4 ? 5 : 3;
-    box.setAttribute("lang", "zh");
-    box.placeholder = "用中文写下你的答案…";
-    const saved = state.answers.get(question.question);
-    if (saved && saved.text) {
-      box.value = saved.text;
-      cardEl.classList.add("answered");
-    }
-    box.addEventListener("input", () => {
-      if (state.finished) return;
-      const text = box.value.trim();
-      if (text) state.answers.set(question.question, { text });
-      else state.answers.delete(question.question);
-      cardEl.classList.toggle("answered", Boolean(text));
-      saveAnswers();
-      updateProgress();
-    });
-    body.append(box);
-  }
-
   function feedbackSlot() {
     const slot = document.createElement("div");
     slot.className = "cn-feedback";
@@ -274,18 +245,9 @@ const CN = (() => {
       els.progress.textContent = `Marking… ${done} of ${todo.length}`;
       const given = state.answers.get(question.question);
       try {
-        if (question.response_mode === "choose") {
-          state.results.set(question.question, await postJSON(
-            `/api/chinese/papers/${state.year}/answer/${question.question}`,
-            { choice: given.choice }));
-        } else if (question.response_mode === "typed") {
-          state.results.set(question.question, await postJSON(
-            `/api/chinese/papers/${state.year}/written/${question.question}`,
-            { answer: given.text }));
-        } else {
-          // Self-marked: nothing to compute, only the model answer to show.
-          state.results.set(question.question, { graded: false });
-        }
+        state.results.set(question.question, await postJSON(
+          `/api/chinese/papers/${state.paper}/answer/${question.question}`,
+          { choice: given.choice }));
       } catch (err) {
         state.results.set(question.question, { error: err.message });
       }
@@ -305,13 +267,11 @@ const CN = (() => {
         `.cn-card[data-question="${question.question}"]`);
       if (!cardEl) continue;
 
-      for (const box of cardEl.querySelectorAll("textarea")) box.readOnly = true;
       cardEl.classList.add("marked");
       const slot = cardEl.querySelector(".cn-feedback");
 
       if (!result) {
         slot.innerHTML = `<p class="muted">Not answered.</p>`;
-        await showModel(question, cardEl);
         continue;
       }
       if (result.error) {
@@ -319,41 +279,34 @@ const CN = (() => {
         continue;
       }
       if (typeof result.marks === "number") earned += result.marks;
-
-      if (question.response_mode === "choose") renderChooseResult(cardEl, result);
-      else await renderWrittenResult(question, cardEl, result);
+      renderChooseResult(cardEl, result);
     }
     state.autoMarks = earned;
     state.available = available;
     renderSummary();
   }
 
-  function total() {
-    let sum = state.autoMarks;
-    for (const marks of state.selfMarks.values()) sum += marks;
-    return sum;
-  }
-
   function showTotal() {
     const line = els.summary.querySelector(".total");
     if (line) {
-      line.innerHTML = `<strong>${total()}</strong>`
+      line.innerHTML = `<strong>${state.autoMarks}</strong>`
         + `<span> of ${state.available} marks</span>`;
     }
-    els.header.innerHTML = `<strong>${total()}</strong> of ${state.available} marks`;
+    els.header.innerHTML =
+      `<strong>${state.autoMarks}</strong> of ${state.available} marks`;
   }
 
   function renderSummary() {
     els.summary.hidden = false;
     els.summary.innerHTML = `
-      <p class="label">${state.year} 试卷二</p>
+      <p class="label">${esc(state.label)} 试卷二</p>
       <p class="total"></p>
       <p class="muted">Marked against the EPH suggested answers — not the
         official SEAB marking scheme.</p>`;
     const again = document.createElement("button");
     again.type = "button";
     again.textContent = "Try this paper again";
-    again.addEventListener("click", () => { clearAnswers(); start(state.year); });
+    again.addEventListener("click", () => { clearAnswers(); start(state.paper, state.label); });
     els.summary.append(again);
 
     showTotal();
@@ -376,93 +329,6 @@ const CN = (() => {
       + (result.note ? `<p class="note">${esc(result.note)}</p>` : "");
   }
 
-  async function renderWrittenResult(question, cardEl, result) {
-    const slot = cardEl.querySelector(".cn-feedback");
-    if (!result.graded) {
-      // Either self-marked by design (Q33) or the grader was unavailable. Both
-      // end the same way: show the model answer and let the student award it.
-      slot.innerHTML = result.reason
-        ? `<p class="muted">Not marked automatically (${esc(result.reason)}).</p>`
-        : `<p class="muted">Mark this one yourself against the answer below.</p>`;
-      await showModel(question, cardEl, { selfMark: true });
-      return;
-    }
-    const verdicts = result.verdicts || [];
-    const hit = verdicts.filter((v) => v.status === "hit").length;
-    const rows = verdicts.map((v) => `<li class="kp ${v.status}">`
-      + `<span class="dot"></span>`
-      + `<span>${esc(v.evidence || v.missing || "")}</span></li>`).join("");
-    cardEl.classList.toggle("right", result.marks === result.marks_total);
-    slot.innerHTML =
-      `<p class="verdict ${result.marks === result.marks_total ? "ok" : "part"}">`
-      + `${result.marks}/${result.marks_total}`
-      + `<span class="muted"> · ${hit} of ${verdicts.length} points</span></p>`
-      + (result.feedback ? `<p class="note">${esc(result.feedback)}</p>` : "")
-      + (rows ? `<ul class="kps">${rows}</ul>` : "")
-      + (result.model_answer
-        ? `<details class="model"><summary>参考答案</summary>`
-          + `<p>${esc(result.model_answer)}</p>`
-          + (result.note ? `<p class="muted">${esc(result.note)}</p>` : "")
-          + `</details>` : "");
-  }
-
-  async function showModel(question, cardEl, { selfMark = false } = {}) {
-    if (question.response_mode === "choose") return;
-    const slot = cardEl.querySelector(".cn-feedback");
-    try {
-      const model = await getJSON(
-        `/api/chinese/papers/${state.year}/model/${question.question}`);
-      const points = (model.keypoints || []).map((k) =>
-        `<li><span class="kpmark">${k.marks}</span> ${esc(k.statement)}</li>`).join("");
-      slot.insertAdjacentHTML("beforeend", `<div class="model open">`
-        + `<p class="label">参考答案</p><p>${esc(model.model_answer)}</p>`
-        + (model.note ? `<p class="muted">${esc(model.note)}</p>` : "")
-        + (points ? `<ul class="kps points">${points}</ul>` : "")
-        + (model.free_response
-          ? `<p class="muted">这题答案合理即可 — your own view is fine if you explain it.</p>`
-          : "")
-        + (model.mark_scheme
-          ? `<p class="muted">评分标准：${esc(model.mark_scheme)}</p>` : "")
-        + `</div>`);
-      if (selfMark) slot.append(selfMarkRow(question, cardEl));
-    } catch (err) {
-      slot.insertAdjacentHTML("beforeend", `<p class="error">${esc(err.message)}</p>`);
-    }
-  }
-
-  function selfMarkRow(question, cardEl) {
-    const row = document.createElement("div");
-    row.className = "selfmark";
-    row.innerHTML = `<span>How many marks did you earn?</span>`;
-    for (let n = 0; n <= question.marks; n += 1) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = String(n);
-      button.addEventListener("click", async () => {
-        const given = state.answers.get(question.question);
-        try {
-          await postJSON(
-            `/api/chinese/papers/${state.year}/self-mark/${question.question}`,
-            { marks: n, answer: given ? given.text || "" : "" });
-          for (const other of row.querySelectorAll("button")) {
-            other.classList.toggle("on", other === button);
-          }
-          cardEl.classList.toggle("right", n === question.marks);
-          // Adjust this run's total rather than re-reading the log, which
-          // returns the best attempt at each question across every sitting --
-          // on a retake that is a different number from what is on screen.
-          state.selfMarks.set(question.question, n);
-          showTotal();
-        } catch (err) {
-          row.insertAdjacentHTML("beforeend",
-            `<span class="error">${esc(err.message)}</span>`);
-        }
-      });
-      row.append(button);
-    }
-    return row;
-  }
-
   /* ------------------------------------------------------------------ layout */
 
   function select(number) {
@@ -474,16 +340,16 @@ const CN = (() => {
 
   function renderList() {
     els.list.innerHTML = "";
-    let section = null, group = null;
+    // Booklet A never groups a section (that's 阅读理解二's A组/B组, past the
+    // seam this screen never sees), so the section name alone marks a new head.
+    let section = null;
     for (const question of state.questions) {
-      if (question.section !== section || question.group !== group) {
+      if (question.section !== section) {
         section = question.section;
-        group = question.group;
         const head = document.createElement("h2");
         head.className = "cn-section";
         const hint = SECTION_HINT[section] || "";
         head.innerHTML = `${esc(section || "")}`
-          + (group ? ` <span class="grp">${GROUP_HINT[group]}</span>` : "")
           + (hint ? `<span class="hint">${esc(hint)}</span>` : "");
         els.list.append(head);
       }
@@ -562,11 +428,11 @@ const CN = (() => {
     wired = true;
   }
 
-  async function start(year) {
+  async function start(paper, label) {
     wire();
-    state.year = year;
+    state.paper = paper;
+    state.label = label || paper;
     state.results.clear();
-    state.selfMarks.clear();
     state.autoMarks = 0;
     state.finished = false;
     els.root.classList.remove("finished");
@@ -574,14 +440,14 @@ const CN = (() => {
     els.summary.innerHTML = "";
     els.finishBar.hidden = false;
 
-    const data = await getJSON(`/api/chinese/papers/${year}/questions`);
+    const data = await getJSON(`/api/chinese/papers/${paper}/questions`);
     state.questions = data.questions;
     state.pages = data.pages;
     state.pageSizes = data.page_sizes || [];
     state.sections = data.sections;
     loadAnswers();
 
-    els.title.textContent = `华文 ${year} · 试卷二`;
+    els.title.textContent = `华文 ${state.label} · 试卷二`;
     els.jump.innerHTML = state.questions.map((q) =>
       `<option value="${q.question}">Q${q.question} — ${q.section || ""}</option>`
     ).join("");

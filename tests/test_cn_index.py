@@ -18,9 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "build"))
 
 from ocr_vision import Line  # noqa: E402
 from cn_index import (  # noqa: E402
-    BANK_ENTRY, GROUP, MARKS, MCQ_RANGE, OPTION, QUESTION, QUESTION_LOOSE,
-    QUESTION_RANGE, SECTION_COUNTS, SECTION_NAME, SECTION_STEMS, WRITTEN_FROM,
-    Question, _as_number, _count_options, validate,
+    BANK_ENTRY, GROUP, MARKS, MCQ_RANGE, OPTION, QUESTION, QUESTION_DAMAGED,
+    QUESTION_LOOSE, QUESTION_RANGE, SECTION_COUNTS, SECTION_NAME,
+    SECTION_STEMS, WRITTEN_FROM, Question, _as_number, _count_options,
+    validate,
 )
 
 
@@ -68,6 +69,22 @@ def test_section_name_survives_a_misread_first_character():
     glyph kept the section from opening and 完成对话 absorbed Q30-Q40."""
     assert SECTION_NAME.search("五 阔读理解二（Q30-Q33，4题10分）").group(1) == "读理解二"
     assert SECTION_STEMS["读理解二"] == "阅读理解二"
+
+
+def test_section_name_survives_a_dropped_numeral():
+    """A 2026 school prelim prints "三 阅读理解（5题10分）" with no "一" at all,
+    rather than misreading it -- the word is simply absent from the scan. A
+    bare "读理解" must resolve to 阅读理解一 without ever winning over an
+    explicit "二" elsewhere on the same corpus."""
+    match = SECTION_NAME.search("三 阅读理解（5题10分）")
+    assert SECTION_STEMS[match.group(1)] == "阅读理解一"
+
+
+def test_section_name_survives_a_parenthesised_numeral():
+    """Another school prints "三阅读理解（一）（5題10分）" -- the numeral present,
+    but set off in its own brackets rather than run on."""
+    match = SECTION_NAME.search("三阅读理解（一）（5題10分）")
+    assert SECTION_STEMS[match.group(1)] == "阅读理解一"
     # The two comprehension sections stay distinct from each other.
     assert SECTION_NAME.search("三 阅读理解一（5题10分）").group(1) == "读理解一"
 
@@ -116,6 +133,23 @@ def test_a_damaged_label_is_not_read_as_a_shorter_number():
 
 def test_confusable_glyphs_resolve_to_the_predicted_number():
     assert _as_number("1Z") == 17
+
+
+def test_a_dropped_q_before_an_option_bracket_is_caught():
+    """A 2026 school prelim's "Q18" and "Q19" both come back with the "Q"
+    itself replaced by a digit, not one of its own digits misread -- "918
+    （1已经", "919（1询问". Scoped to immediately before an option opener so a
+    date or a price in the surrounding passage cannot match."""
+    assert QUESTION_DAMAGED.findall("帮助别人 918（1已经（2必须 3可能 4需要）") == ["18"]
+    assert QUESTION_DAMAGED.findall("017（1力量2精神3意义4耐心）") == ["17"]
+
+
+def test_a_dropped_q_without_a_following_option_is_not_matched():
+    """The same corruption in a dialogue-completion blank has no option
+    bracket after it ("，926？1"), so it is not this tier's job to catch --
+    an unscoped match would also fire on a date or a price ("640元")."""
+    assert QUESTION_DAMAGED.findall("欢欢：好，你说出来吧，926？") == []
+    assert QUESTION_DAMAGED.findall("每周六上午640元") == []
     assert _as_number("1D") == 10
     assert _as_number("B") == 8
     assert _as_number("17") == 17
@@ -253,6 +287,19 @@ def test_marks_moved_between_questions_still_fail_the_group_total():
 def test_an_unplaced_damaged_label_is_reported_not_swallowed():
     paper = _paper(unresolved=[{"raw": "1Z", "page": 7}])
     assert any("unplaced damaged label" in p for p in validate(paper))
+
+
+def test_a_group_range_that_disagrees_with_its_own_count_is_not_walked():
+    """A 2026 school prelim misread "A组（Q30-Q33，4题10分）" as "A组（Q3-933,
+    4題10分）" -- count intact, range destroyed. Walking range(3, 934) for
+    missing questions invents hundreds of them; the count disagreeing with the
+    range is what says the range cannot be trusted, so it is reported and
+    skipped instead."""
+    paper = _paper(
+        groups=[{"group": "A", "start": 3, "end": 933, "count": 4, "marks": 10}])
+    problems = validate(paper)
+    assert any("does not match its own stated count" in p for p in problems)
+    assert not any("missing Q" in p for p in problems)
 
 
 def test_a_paper_that_cannot_read_its_own_ranges_is_flagged():

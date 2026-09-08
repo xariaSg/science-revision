@@ -78,6 +78,17 @@ MIN_QUESTIONS, MAX_QUESTIONS = 15, 45
 # page 3, behind a cover and a blank page; nothing in either corpus is later.
 FRONT_MATTER_PAGES = 6
 
+VERIFIED_POSITIONS = REPO / "review" / "mcq-positions.json"
+
+
+def verified_positions(paper: str) -> dict[int, int]:
+    """Human-verified question-start pages, for a gap neither recovery tier can
+    place on its own (see review/mcq-positions.json and recover_positions)."""
+    if not VERIFIED_POSITIONS.exists():
+        return {}
+    data = json.loads(VERIFIED_POSITIONS.read_text())
+    return {int(q): int(page) for q, page in data.get(paper, {}).items()}
+
 
 def read_structure(rows: list[tuple[int, Line]]) -> dict:
     """Everything the paper says about its own shape, with nothing reconciled yet.
@@ -211,6 +222,18 @@ def reconcile_structure(structure: dict) -> tuple[tuple[int, int] | None, int | 
             return None, stated_total, each, "unusable", warnings + [
                 f"{stated_total} marks does not divide by {per} marks per question"]
         count = stated_total // per
+        if not MIN_QUESTIONS <= count <= MAX_QUESTIONS:
+            # A stated total this far outside anything either corpus has ever
+            # printed is far more likely a misread digit than a real Booklet A
+            # shape. The 2026 Nanyang paper's "[60 marks]" OCRs as "160 marks]" --
+            # Vision drops the bracket glyph into a spurious leading "1" -- turning
+            # an assumed 30 questions into an assumed 80 and inventing fifty
+            # questions nobody wrote. Refusing the derived range here is what stops
+            # that surfacing as a "no question found" gap instead of what it is.
+            return None, stated_total, each, "unusable", warnings + [
+                f"{stated_total} marks / {per} each implies {count} questions, "
+                f"outside the plausible range {MIN_QUESTIONS}-{MAX_QUESTIONS} — "
+                f"the total looks misread; using the questions actually found"]
         source = f"total/{per}" + ("" if each else " (assumed 2 marks each)")
     else:
         return None, None, each, "nothing usable", warnings
@@ -296,9 +319,17 @@ def index_paper(work: Path) -> dict:
 
     warnings: list[str] = list(structure_warnings)
     repairs: list[str] = []
-    if expected and margins:
-        chosen, recovered = recover_positions(rows, manifest, chosen, loose,
-                                               expected, margins, anchor)
+    # A stated range that was refused as implausible (or never stated at all)
+    # still leaves the span the paper's own numbering actually reached, and that
+    # is enough to recover a gap *between* two questions that were found -- 2026
+    # Nanyang's Q3 among them. It cannot recover a genuinely missing first or last
+    # question, which is the honest limit of having no trustworthy range to check
+    # a recovered edge against.
+    scan_range = expected or ((chosen[0][2], chosen[-1][2]) if chosen else None)
+    if scan_range and margins:
+        chosen, recovered = recover_positions(
+            rows, manifest, chosen, loose, scan_range, margins, anchor,
+            overrides=verified_positions(paper))
         repairs.extend(recovered)
     questions: dict[int, dict] = {}
     for position, (index, _page, number) in enumerate(chosen):

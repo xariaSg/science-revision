@@ -737,7 +737,6 @@ async function setBooklet(booklet) {
 const home = {
   subjects: [],
   subject: null,
-  mode: null,
   group: null,
   paper: null,
 };
@@ -748,12 +747,6 @@ const screens = {
   chinese: document.getElementById("cnPractice"),
   english: document.getElementById("enPractice"),
 };
-
-// Which papers the picker is choosing between at this step. A subject that asks
-// for the booklet first has already narrowed them, and listing the papers the
-// *subject* has would offer one the chosen booklet is not built for.
-const homeGroups = () =>
-  (home.mode && home.mode.groups) || home.subject.groups;
 
 function showScreen(name) {
   for (const [key, el] of Object.entries(screens)) {
@@ -790,10 +783,8 @@ function renderHome() {
         meta: plural(subject.papers.length, "paper"),
         onPick: () => {
           home.subject = subject;
-          home.mode = null;
           home.paper = null;
-          home.group = subject.mode_first || subject.groups.length !== 1
-            ? null : subject.groups[0];
+          home.group = subject.groups.length !== 1 ? null : subject.groups[0];
           renderHome();
         },
       }));
@@ -801,47 +792,16 @@ function renderHome() {
     return;
   }
 
-  // English asks which booklet before which paper. The two booklets of a subject
-  // are backfilled at different rates, so choosing the booklet first lists only
-  // the papers built for it — a better step than offering a paper and then
-  // refusing the booklet, which is what Science's order has to do.
-  if (home.subject.mode_first && !home.mode) {
-    hint.textContent = `${home.subject.label} — which booklet?`;
-    back.hidden = false;
-    back.onclick = () => { home.subject = null; renderHome(); };
-    for (const mode of home.subject.modes) {
-      const papers = (mode.groups || []).reduce((n, g) => n + g.papers.length, 0);
-      const button = cardButton({
-        title: mode.label,
-        hint: mode.hint,
-        meta: plural(papers, "paper"),
-        onPick: () => {
-          home.mode = mode;
-          home.paper = null;
-          home.group = (mode.groups || []).length === 1 ? mode.groups[0] : null;
-          renderHome();
-        },
-      });
-      button.disabled = !papers;
-      if (!papers) button.title = "Not indexed for any paper yet";
-      cards.append(button);
-    }
-    return;
-  }
-
   // The group step exists because a year stopped naming a paper: fourteen schools
   // sat their own 2025 prelim, so Science now has twenty-eight papers and a single
   // flat list of them would bury the PSLE papers among the schools. Skipped
-  // entirely where a subject has one group, which is every subject but Science —
-  // asking "PSLE or PSLE?" is a step that answers itself.
+  // entirely where a subject has one group -- Chinese, whose PSLE years are not
+  // (yet) joined by any prelim.
   if (!home.group) {
     hint.textContent = `${home.subject.label} — which papers?`;
     back.hidden = false;
-    back.onclick = () => {
-      if (home.mode) home.mode = null; else home.subject = null;
-      renderHome();
-    };
-    for (const group of homeGroups()) {
+    back.onclick = () => { home.subject = null; renderHome(); };
+    for (const group of home.subject.groups) {
       cards.append(cardButton({
         title: group.group,
         meta: plural(group.papers.length, "paper"),
@@ -855,15 +815,11 @@ function renderHome() {
     hint.textContent = `${home.group.group} — which paper?`;
     back.hidden = false;
     back.onclick = () => {
-      // Straight back past any step that was skipped on the way in, so Back
-      // never lands on a screen the student was not shown. The group step is
-      // skipped where there is only one group, which is every subject but
-      // Science — asking "PSLE or PSLE?" answers itself.
+      // Straight back past the group step when it was skipped on the way in,
+      // so Back never lands on a screen the student was not shown. Skipped
+      // only where there is one group -- Chinese, currently.
       home.group = null;
-      if (homeGroups().length === 1) {
-        if (home.mode) home.mode = null;
-        else home.subject = null;
-      }
+      if (home.subject.groups.length === 1) home.subject = null;
       renderHome();
     };
     for (const paper of home.group.papers) {
@@ -872,10 +828,9 @@ function renderHome() {
         hint: paper.prelim ? `${paper.year} prelim` : "",
         onPick: () => {
           home.paper = paper;
-          // Nothing left to ask once the booklet was chosen first, and nothing
-          // to ask at all for a subject with no modes.
-          if (home.mode) openPaper(home.mode.id);
-          else if (home.subject.modes.length) renderHome();
+          // Nothing to ask for a subject with no modes -- Chinese, which
+          // loads the whole paper directly.
+          if (home.subject.modes.length) renderHome();
           else openPaper();
         },
       }));
@@ -887,8 +842,12 @@ function renderHome() {
   back.hidden = false;
   back.onclick = () => { home.paper = null; renderHome(); };
   for (const mode of home.subject.modes) {
-    const available = home.subject.id !== "science"
-      || (state.papers[mode.id] || []).some((p) => p.paper === home.paper.paper);
+    // Each mode already carries the groups it is indexed for (/api/subjects),
+    // so whether *this* paper has it is a lookup, not a guess -- true for any
+    // subject with modes, not just Science, which is what greys out a booklet
+    // this paper was never built for instead of opening to an error.
+    const available = (mode.groups || []).some(
+      (group) => group.papers.some((p) => p.paper === home.paper.paper));
     const button = cardButton({
       title: mode.label,
       hint: mode.hint,
@@ -904,7 +863,7 @@ async function openPaper(mode) {
   if (home.subject.id === "chinese") {
     showScreen("chinese");
     try {
-      await CN.start(Number(home.paper.paper));
+      await CN.start(home.paper.paper, home.paper.label);
     } catch (err) {
       showScreen("home");
       document.getElementById("homeHint").textContent =

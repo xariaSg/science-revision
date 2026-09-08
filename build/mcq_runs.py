@@ -190,7 +190,9 @@ def recover_positions(rows: list[tuple[int, Line]], manifest: dict,
                        loose: list[tuple[int, int, int, int]],
                        expected: tuple[int, int],
                        margins: list[int],
-                       anchor: int = 0) -> tuple[list[tuple[int, int, int]], list[str]]:
+                       anchor: int = 0,
+                       overrides: dict[int, int] | None = None
+                       ) -> tuple[list[tuple[int, int, int]], list[str]]:
     """Place the questions neither reader could name, from position alone.
 
     This is where Booklet A is easier than anything in Booklet B: the paper states
@@ -211,7 +213,14 @@ def recover_positions(rows: list[tuple[int, Line]], manifest: dict,
     question's first.
 
     Both tiers refuse whenever the band is ambiguous, so an unclear stretch is left
-    as a gap for a human rather than guessed at.
+    as a gap for a human rather than guessed at. `overrides` is that human's
+    recourse when even both tiers agree on nothing: a question number mapped to
+    the page it starts on, read from review/mcq-positions.json. 2026 Red Swastika's
+    Q7 is the case it exists for -- Q6's own fourth option is a picture with no
+    digit for OCR to read, so the option-block tier runs on into Q7's own options
+    before noticing and lands on Q8's own row instead, which is rejected as out of
+    bounds. A verified override always wins over either tier, the same way a
+    verified answer key always wins over what OCR reads.
     """
     if not chosen:
         return chosen, []
@@ -259,6 +268,16 @@ def recover_positions(rows: list[tuple[int, Line]], manifest: dict,
                            len(rows) if run[-1] == expected[1] else None)
         if before is None or after is None:
             continue
+        if len(run) == 1 and overrides and run[0] in overrides:
+            page = overrides[run[0]]
+            index = next((i for i in range(before + 1, after)
+                         if rows[i][0] == page), None)
+            if index is not None:
+                placed[run[0]] = index
+                recovered.append(f"Q{run[0]}: placed on p{page} from a "
+                                 f"human-verified position "
+                                 f"(review/mcq-positions.json)")
+                continue
         if run[0] == expected[0]:
             index = first_question_start(rows, before, after)
             if index is not None:

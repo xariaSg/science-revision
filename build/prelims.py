@@ -1,22 +1,29 @@
-"""The 2025 school prelim corpus: what a paper is called, and where its parts are.
+"""The school prelim corpus: what a paper is called, and where its parts are.
 
 The PSLE corpus is one compilation per year, so a paper's identity there is its
-year and nothing else needed saying. The prelims break that: fourteen schools sat
-their own paper in the same year, so "2025" no longer names a paper. Identity
+year and nothing else needed saying. The prelims break that: several schools sit
+their own paper in the same year, so a bare year no longer names a paper. Identity
 becomes a string id -- `2025-prelim-rosyth` -- and the PSLE papers keep theirs
 unchanged as `2025`, `2024`, ... so nothing already built has to move.
 
 That string is what the work directories, the rubric files, the routes and the
 attempt log all key on from here. `year` survives beside it as the calendar year,
-because the syllabus era is a property of the year (CLAUDE.md section 5) and
-fifteen 2025 papers share it.
+because the syllabus era is a property of the year (CLAUDE.md section 5) and every
+prelim sat in a given year shares it.
 
 The source is three directories -- MCQ, OEQ, Answers -- which is already the shape
 the Science pipeline reads (papers/MCQ-Booklet-A and friends), so the split that
 cn_split.py has to derive for Chinese is simply given here. What is *not* given is
-consistent naming: thirteen files are "2025-Prelim Exam-<school>.pdf" and one is
-"2025-Prelim-ACS Junior.pdf", so the school is parsed rather than assumed, and a
+consistent naming, and it changes year to year: 2025's thirteen files are
+"2025-Prelim Exam-<school>.pdf" and one is "2025-Prelim-ACS Junior.pdf"; 2026's are
+"2026_<School>.pdf" with no "Prelim" word at all, and two of those arrive with a
+stray double ".pdf.pdf" extension. The school is parsed rather than assumed, and a
 school missing any of its three parts is reported rather than half-built.
+
+**A second year is a second source, not a replacement.** `ingest()` merges new
+papers into the existing registry keyed on paper id, so re-running it for 2026
+does not erase what 2025 already built -- the opposite would silently delete a
+built corpus every time a new year's papers arrived.
 """
 
 from __future__ import annotations
@@ -35,8 +42,21 @@ PAPERS_DIR = REPO / "papers"
 # directory and a glob written for one cannot pick up the other.
 PRELIM_DIR = PAPERS_DIR / "prelims"
 
-DEFAULT_SOURCE = Path(
-    "/Users/Prats/Library/CloudStorage/OneDrive-Personal/Arya PSLE/Science/2025-prelims")
+ARYA_PSLE = Path(
+    "/Users/Prats/Library/CloudStorage/OneDrive-Personal/Arya PSLE/Science")
+DEFAULT_SOURCE = ARYA_PSLE / "2025-prelims"
+
+PRELIM_YEAR = 2025  # the default source's year, kept for callers that omit one
+
+# The canonical part name (used for dest directories and part_path()) and the
+# source subfolder name(s) that hold it. A list because the folder itself is
+# renamed year to year -- 2025 uses "Answers", 2026 uses "Answer Key" -- and
+# trying each in turn beats hardcoding either.
+PART_ALIASES: dict[str, list[str]] = {
+    "MCQ": ["MCQ"],
+    "OEQ": ["OEQ"],
+    "Answers": ["Answers", "Answer Key"],
+}
 
 # The three parts, and the directory each is copied into. The names match the PSLE
 # split directories so the same mental model covers both corpora.
@@ -46,13 +66,15 @@ PARTS = {
     "Answers": "Answers",
 }
 
-PRELIM_YEAR = 2025
-
-# "2025-Prelim Exam-Ai Tong.pdf", and ACS Junior's "2025-Prelim-ACS Junior.pdf".
-# The "Exam" is optional because exactly one file omits it; requiring it drops that
-# school silently, which is the failure mode this whole module is arranged against.
-SOURCE_RE = re.compile(r"^(?P<year>\d{4})-Prelim(?:\s+Exam)?-(?P<school>.+)\.pdf$",
-                       re.IGNORECASE)
+# Matches both "2025-Prelim Exam-Ai Tong.pdf" / "2025-Prelim-ACS Junior.pdf" (the
+# "Exam" is optional because exactly one 2025 file omits it) and 2026's bare
+# "2026_NanHua.pdf" -- no "Prelim" word, "_" instead of "-", and sometimes a
+# doubled ".pdf.pdf" suffix that "(?:\.pdf)+" absorbs rather than treating as part
+# of the school name. Requiring "Prelim" drops every 2026 file silently, which is
+# the exact failure mode this whole module is arranged against.
+SOURCE_RE = re.compile(
+    r"^(?P<year>\d{4})[-_](?:Prelim(?:\s+Exam)?-)?(?P<school>.+?)(?:\.pdf)+$",
+    re.IGNORECASE)
 
 
 def slugify(school: str) -> str:
@@ -82,7 +104,34 @@ def _repo_relative(path: Path) -> str:
         return str(path.resolve())
 
 
-def discover(source: Path = DEFAULT_SOURCE) -> tuple[list[Prelim], list[str]]:
+# "2025-prelims" -> 2025. Lets --source alone decide the year for a folder named
+# the conventional way, rather than requiring a redundant --year on every call.
+SOURCE_YEAR_RE = re.compile(r"(?P<year>\d{4})-prelims$")
+
+
+def _infer_year(source: Path) -> int:
+    match = SOURCE_YEAR_RE.search(source.name)
+    if not match:
+        raise ValueError(
+            f"cannot infer a year from {source.name!r}; pass --year explicitly")
+    return int(match.group("year"))
+
+
+def _find_part_dir(source: Path, part: str) -> Path | None:
+    """The source subfolder holding `part`, trying each known alias in turn.
+
+    The folder itself is renamed year to year -- 2025's is "Answers", 2026's is
+    "Answer Key" -- so the first alias that exists on disk wins.
+    """
+    for alias in PART_ALIASES[part]:
+        directory = source / alias
+        if directory.is_dir():
+            return directory
+    return None
+
+
+def discover(source: Path = DEFAULT_SOURCE,
+             year: int | None = None) -> tuple[list[Prelim], list[str]]:
     """Find every school with all three parts present.
 
     Returns (complete papers, problems). A school missing a part is *not* returned
@@ -90,13 +139,17 @@ def discover(source: Path = DEFAULT_SOURCE) -> tuple[list[Prelim], list[str]]:
     question paper is what makes it practisable, so a half-present school is a
     problem to report, never a paper to build.
     """
+    if year is None:
+        year = _infer_year(source)
+
     found: dict[str, dict[str, Path]] = {}
     problems: list[str] = []
 
     for part in PARTS:
-        directory = source / part
-        if not directory.is_dir():
-            problems.append(f"missing source directory: {directory}")
+        directory = _find_part_dir(source, part)
+        if directory is None:
+            aliases = " / ".join(PART_ALIASES[part])
+            problems.append(f"missing source directory: {source} / [{aliases}]")
             continue
         for path in sorted(directory.iterdir()):
             if path.name.startswith("."):
@@ -105,6 +158,12 @@ def discover(source: Path = DEFAULT_SOURCE) -> tuple[list[Prelim], list[str]]:
             if not match:
                 if path.suffix.lower() == ".pdf":
                     problems.append(f"{part}/{path.name}: name not understood")
+                continue
+            file_year = int(match.group("year"))
+            if file_year != year:
+                problems.append(
+                    f"{part}/{path.name}: filename year {file_year} does not "
+                    f"match source year {year} — skipped")
                 continue
             school = match.group("school").strip()
             found.setdefault(school, {})[part] = path
@@ -117,9 +176,9 @@ def discover(source: Path = DEFAULT_SOURCE) -> tuple[list[Prelim], list[str]]:
             problems.append(f"{school}: no {', '.join(missing)} — skipped")
             continue
         papers.append(Prelim(
-            paper=paper_id(school),
+            paper=paper_id(school, year=year),
             school=school,
-            year=PRELIM_YEAR,
+            year=year,
             parts={part: _repo_relative(parts[part]) for part in PARTS},
         ))
     return papers, problems
@@ -141,15 +200,21 @@ def load_registry(path: Path = REGISTRY) -> list[dict]:
 
 
 def ingest(source: Path = DEFAULT_SOURCE, dest: Path = PRELIM_DIR,
-           force: bool = False, dry_run: bool = False) -> tuple[list[Prelim], list[str]]:
+           force: bool = False, dry_run: bool = False,
+           year: int | None = None) -> tuple[list[Prelim], list[str]]:
     """Copy each school's three PDFs into papers/prelims/ under its paper id.
 
     Copied rather than referenced: the source sits in a cloud-synced folder whose
     files can be evicted to placeholders, and a corpus that stops building because
     OneDrive reclaimed space is a corpus that cannot be rebuilt. papers/ is
     gitignored (CLAUDE.md section 2.1), so this stays local either way.
+
+    **Merged into the registry, not written fresh.** A second year is a second
+    source, and every prelim year built so far shares one registry.json; writing
+    it fresh here would silently delete every other year's entries the moment a
+    new year was ingested.
     """
-    papers, problems = discover(source)
+    papers, problems = discover(source, year=year)
     if dry_run:
         return papers, problems
 
@@ -165,9 +230,22 @@ def ingest(source: Path = DEFAULT_SOURCE, dest: Path = PRELIM_DIR,
             shutil.copy2(src, target)
 
     dest.mkdir(parents=True, exist_ok=True)
+    existing = json.loads(REGISTRY.read_text()) if REGISTRY.exists() else {}
+    by_id = {p["paper"]: p for p in existing.get("papers", [])}
+    for paper in papers:
+        by_id[paper.paper] = asdict(paper)
+    # Older registries (pre-multi-source) recorded a single "year"/"source" pair
+    # rather than a list; fold that one entry in rather than dropping it.
+    sources = existing.get("sources")
+    if sources is None:
+        sources = [{"year": existing["year"], "source": existing["source"]}] \
+            if "source" in existing else []
+    sources = [s for s in sources if s.get("source") != str(source)]
+    sources.append({"year": year if year is not None else _infer_year(source),
+                     "source": str(source)})
     REGISTRY.write_text(json.dumps(
-        {"year": PRELIM_YEAR, "source": str(source),
-         "papers": [asdict(p) for p in papers]}, indent=2))
+        {"sources": sources,
+         "papers": [by_id[k] for k in sorted(by_id)]}, indent=2))
     return papers, problems
 
 
@@ -179,13 +257,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--dest", type=Path, default=PRELIM_DIR)
+    parser.add_argument("--year", type=int, default=None,
+                        help="calendar year sat, if it cannot be inferred from "
+                             "--source's own directory name (e.g. 2026-prelims)")
     parser.add_argument("--force", action="store_true",
                         help="re-copy files that are already present")
     parser.add_argument("--dry-run", action="store_true",
                         help="report what would be ingested and copy nothing")
     args = parser.parse_args(argv)
 
-    papers, problems = ingest(args.source, args.dest, args.force, args.dry_run)
+    papers, problems = ingest(args.source, args.dest, args.force, args.dry_run,
+                              year=args.year)
     for paper in papers:
         print(f"{paper.paper:32s} {paper.school}")
     print(f"\n{len(papers)} papers"

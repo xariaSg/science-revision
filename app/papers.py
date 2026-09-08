@@ -88,7 +88,7 @@ def _schools() -> dict[str, str]:
     """
     found: dict[str, str] = {}
     for root in (REPO / "work-a", REPO / "work-b", REPO / "work",
-                 REPO / "work-en-a", REPO / "work-en-b"):
+                 REPO / "work-en-a", REPO / "work-en-b", REPO / "work-cn"):
         if not root.exists():
             continue
         for path in sorted(root.iterdir()):

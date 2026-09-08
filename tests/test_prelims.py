@@ -124,6 +124,18 @@ def test_a_paper_stating_only_a_total_still_yields_a_range():
     assert "assumed" in source, "an assumed value must say that it is assumed"
 
 
+def test_a_wildly_implausible_stated_total_is_refused_rather_than_trusted():
+    """The 2026 Nanyang paper's "[60 marks]" OCRs as "160 marks]" -- Vision drops
+    the bracket into a spurious leading "1". Trusting it derives an 80-question
+    range for a 30-question booklet and reports fifty questions as missing."""
+    expected, total, _, source, warnings = reconcile_structure(
+        read_structure(rows("Section A: Multiple Choice Questions 160 marks]")))
+    assert expected is None
+    assert total == 160, "the reading is kept on record even though it is refused"
+    assert source == "unusable"
+    assert any("outside the plausible range" in w for w in warnings)
+
+
 def test_a_paper_that_states_nothing_is_refused_rather_than_guessed():
     expected, _, _, _, _ = reconcile_structure(
         read_structure(rows("Answer all questions.")))

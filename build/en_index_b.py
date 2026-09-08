@@ -53,6 +53,7 @@ from ocr_vision import Line, page_lines
 
 REPO = Path(__file__).resolve().parent.parent
 WORK_EN_B = REPO / "work-en-b"
+WORK_EN_A = REPO / "work-en-a"
 
 # A section states its marks exactly once, at the end of its instruction. That is
 # the anchor: unlike a range statement, every section in this booklet prints one.
@@ -79,8 +80,15 @@ SECTION_TOTAL_RE = re.compile(r"(?P<count>\d{1,3})\s*[x×]\s*(?P<per>\d{1,3})"
 HEADING_LOOKAHEAD = 8
 # A range, worded four ways across this booklet: "numbered 26 to 35", "questions
 # 61 to 65", "answer questions 66 to 75", "For each of the questions 61 to 65".
+# "to" is read two different broken ways across this corpus, both joining the
+# accepted separators: "lo" (an "l" read for a "t" -- the same confusion
+# Booklet A's SECTION_RE tolerates in build/en_index.py) on Raffles' "numbered
+# 26 lo 35" and ACSJ's "answer questions 66 lo 75", and "10" (the whole word
+# read as the digits one-zero) on Ai Tong's "answer questions 66 10 75". Either
+# would otherwise leave a section's range -- and everything derived from it --
+# unset.
 RANGE_RE = re.compile(r"(?:questions?|blanks?|numbered)\s+(?:from\s+)?"
-                      r"(?P<first>\d{1,3})\s*(?:to|[-–—])\s*(?P<last>\d{1,3})\b",
+                      r"(?P<first>\d{1,3})\s*(?:to|lo|10|[-–—])\s*(?P<last>\d{1,3})\b",
                       re.I)
 # A blank's number printed in the margin beside the passage: "(37)". Read only to
 # corroborate a derived range, never to set one.
@@ -94,8 +102,23 @@ BOOKLET_TOTAL_RE = re.compile(r"booklet\s*B\s*[/|]\s*(?P<total>\d{1,3})\b", re.I
 # Anything unmatched falls through to "not_built" rather than to a guess -- an app
 # that offers the wrong kind of answer box is worse than one that offers none.
 RESPONSE_MODES = [
-    ("letter", re.compile(r"write\s+its\s+letter|letter\s*\(?[A-Z]\s*to\s*[A-Z]", re.I)),
-    ("word", re.compile(r"write\s+the\s+correct\s+word|suitable\s+word|"
+    # CHIJ OLGS's grammar-cloze instruction is not merely garbled but entirely
+    # absent from what Vision returns -- its opening two lines never come back
+    # at all, on a direct re-read, confirmed against the source scan by eye.
+    # The word bank a few rows below survives intact, though, and its shape is
+    # distinctive enough to stand on its own: three or more "(LETTER) word"
+    # entries running A, B, C... is what a lettered bank looks like and
+    # nothing else in this booklet does. Uppercase only, so it cannot be
+    # confused with a comprehension answer's lowercase "(a) ... (b) ..."
+    # sub-parts, which use different letters for a different purpose.
+    ("letter", re.compile(r"write\s+its\s+letter|letter\s*\(?[A-Z]\s*to\s*[A-Z]|"
+                          r"\([A-Q]\)\s*\S+.{0,40}\([A-Q]\)\s*\S+.{0,40}\([A-Q]\)",
+                          re.I)),
+    # "correct" loses its leading "c" on Ai Tong's Editing instruction ("Write
+    # the orrect word in each of the boxes"), the same class of dropped-letter
+    # failure CLAUDE.md 10.3 documents for Henry Park's "or each question" --
+    # so the "c" is optional here for the same reason it is optional there.
+    ("word", re.compile(r"write\s+the\s+c?orrect\s+word|suitable\s+word|"
                         r"fill\s+in\s+each\s+blank", re.I)),
     ("sentence", re.compile(r"rewrite\s+the\s+given\s+sentence|in\s+one\s+sentence|"
                             r"using\s+the\s+word\(?s?\)?\s+provided", re.I)),
@@ -187,6 +210,8 @@ def read_sections(work: Path, manifest: dict,
                       "marks": int(match.group("marks")),
                       "instruction": block.strip(), "first": None, "last": None}
 
+        lookahead = " ".join(rows[i][1].text for i
+                            in range(index, min(index + HEADING_LOOKAHEAD, len(rows))))
         range_match = RANGE_RE.search(block)
         if not range_match:
             # Raffles Girls fronts every section with "Section X: Name (Total
@@ -196,28 +221,42 @@ def read_sections(work: Path, manifest: dict,
             # backward above. A forward window catches the range wherever the
             # backward block missed it, exactly as it already does for the
             # "N x M mark" heading case.
-            window = min(index + HEADING_LOOKAHEAD, len(rows))
-            range_match = RANGE_RE.search(
-                " ".join(rows[i][1].text for i in range(index, window)))
+            range_match = RANGE_RE.search(lookahead)
         if range_match:
             first, last = (int(range_match.group("first")),
                            int(range_match.group("last")))
             if first <= last:
                 section["first"], section["last"] = first, last
+        # The response mode is checked against the backward block *and* the
+        # forward lookahead together: CHIJ OLGS's grammar-cloze instruction is
+        # a total OCR dropout (confirmed against the scan by eye, not merely
+        # garbled), but its word bank -- the letter-mode evidence above -- sits
+        # a few rows *after* the marks statement, never before it.
         section["response_mode"] = next(
-            (mode for mode, pattern in RESPONSE_MODES if pattern.search(block)),
+            (mode for mode, pattern in RESPONSE_MODES
+             if pattern.search(block) or pattern.search(lookahead)),
             "not_built")
         found.append(section)
     return found
 
 
-def fill_ranges(sections: list[dict]) -> list[str]:
+def fill_ranges(sections: list[dict], floor: int | None = None) -> list[str]:
     """Give every section a range, or say why one could not be settled.
 
     A run of sections stating no range is bounded by the stated ranges either
     side, and the questions between them must equal the sum of the run's marks --
     one mark per blank, which is what a cloze is. That arithmetic is the check:
     when it holds the split is forced, and when it does not nothing is filled in.
+
+    `floor` bounds the run on the left when it runs off the front of the
+    booklet -- CHIJ OLGS's grammar cloze (Q26-35) states no range anywhere on
+    its page at all, unlike every other school seen, which at least says
+    "numbered 26 to 35" even when OCR mangles the separator. Booklet B always
+    resumes Booklet A's numbering (CLAUDE.md section 11.2's "1.5.1 unchanged"),
+    so Booklet A's own already-validated question count is a real boundary,
+    not a guess -- the same discipline as deriving a boundary from the marks
+    the paper states, just carried in from the other booklet instead of from a
+    neighbouring section.
     """
     problems: list[str] = []
     position = 0
@@ -232,7 +271,8 @@ def fill_ranges(sections: list[dict]) -> list[str]:
 
         before = run[0]
         index = sections.index(before)
-        previous = sections[index - 1] if index else None
+        previous = (sections[index - 1] if index
+                   else ({"last": floor} if floor is not None else None))
         following = sections[position] if position < len(sections) else None
         if previous is None or previous["last"] is None:
             problems.append(f"{len(run)} section(s) state no question range and "
@@ -287,6 +327,20 @@ def corroborate(rows: list[tuple[int, Line]], section: dict,
     return None
 
 
+def booklet_a_floor(paper: str) -> int | None:
+    """Booklet A's last question number, or None if it has not been indexed.
+
+    Not a guess: Booklet A's own questions.json is validated independently by
+    build/en_index.py before this ever runs, so its highest question number is
+    as solid a left boundary for Booklet B as a stated range would be.
+    """
+    path = WORK_EN_A / paper / "questions.json"
+    if not path.exists():
+        return None
+    numbers = [q["question"] for q in json.loads(path.read_text())["questions"]]
+    return max(numbers) if numbers else None
+
+
 def index_paper(work: Path) -> dict:
     manifest = json.loads((work / "manifest.json").read_text())
     paper = manifest.get("paper") or str(manifest["year"])
@@ -299,7 +353,7 @@ def index_paper(work: Path) -> dict:
         warnings.append("no section found; no mark total is printed anywhere this "
                         "pass could read")
 
-    warnings.extend(fill_ranges(sections))
+    warnings.extend(fill_ranges(sections, floor=booklet_a_floor(paper)))
 
     for position, section in enumerate(sections):
         end = (sections[position + 1]["block_row"] if position + 1 < len(sections)

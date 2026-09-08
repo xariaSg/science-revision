@@ -52,7 +52,29 @@ SECTION_COUNTS = re.compile(r"[（(]\s*(\d+)\s*[題题]\s*(\d+)\s*分\s*[）)]")
 # dropping the first character loosens nothing that matters.
 SECTION_STEMS = {"语文应用": "语文应用", "短文填空": "短文填空",
                  "读理解一": "阅读理解一", "完成对话": "完成对话",
-                 "读理解二": "阅读理解二"}
+                 "读理解二": "阅读理解二",
+                 # A school prelim can drop the numeral outright rather than
+                 # mis-OCR it, or wrap it in its own brackets: one 2026 prelim
+                 # prints "三 阅读理解（5题10分）" with no "一" anywhere, another
+                 # "三阅读理解（一）（5題10分）". Tried after the two explicit
+                 # stems above, so a bare "读理解" only ever resolves to
+                 # 阅读理解一 when the text does not already say "二".
+                 "读理解（一）": "阅读理解一", "读理解（二）": "阅读理解二",
+                 "读理解": "阅读理解一",
+                 # 对 misread as 时: a 2026 prelim's "四 完成对话（4題8分）"
+                 # OCRs as "四 完成时话（4題8分）". With no stem covering it the
+                 # section never opened at all, so Q26-28 were silently filed
+                 # under 阅读理解一 -- the previous section's name, still set
+                 # from before -- rather than flagged as unreadable.
+                 "完成时话": "完成对话",
+                 # 语 misread as 诗: a 2026 prelim's very first header, "一 语文
+                 # 应用（15題30分）", OCRs as "一 诗文应用（15題30分）". With no
+                 # section ever recorded, the derived MCQ range (this module,
+                 # below) could not sum the first three sections' counts either,
+                 # so Q1-Q15 fell back to being counted by their option markers
+                 # alone -- and several came back short a marker and were
+                 # misclassified as typed questions instead of chosen ones.
+                 "诗文应用": "语文应用"}
 SECTION_NAME = re.compile("(" + "|".join(SECTION_STEMS) + ")")
 # The counts are optional: 2012-2016 print "A组（Q17-Q20）" with a range and
 # nothing else, leaving the totals to the parent section header. Requiring them
@@ -70,6 +92,15 @@ QUESTION_RANGE = re.compile(r"Q\s*\d+\s*[-—–]\s*Q?\s*\d+")
 # which a plain digit match reads as Q1 -- a phantom reference to a question that
 # already exists, rather than a visible failure. Hence the lookahead above.
 QUESTION_LOOSE = re.compile(r"Q\s*([0-9OZSBGIlD]{1,2})(?![0-9])")
+# The "Q" itself can misread as a bare digit -- rather than one of the digits
+# *inside* a "Q..." match, which is all CONFUSABLE repairs elsewhere in this
+# module. A 2026 prelim's "Q18" and "Q19" both come back as "918"/"919" inline
+# in a cloze passage, and another's "Q17" as "017". Scoped to a token
+# immediately followed by an option opener ("（1" through "（4"), because that
+# is the one place in this layout a bare number can appear that always means
+# a damaged question label, never a date, a price, or any other digit run in
+# the surrounding prose.
+QUESTION_DAMAGED = re.compile(r"(?<![0-9])[9O0](\d{1,2})(?=\s*[（(]\s*[1-4])")
 MARKS = re.compile(r"[（(]\s*(\d+)\s*分\s*[）)]")
 WRITTEN_FROM = re.compile(r"从第\s*(\d+)\s*[題题]到第\s*(\d+)\s*[題题].{0,12}写在作答簿")
 MCQ_RANGE = re.compile(r"从第\s*(\d+)\s*[題题]到第\s*(\d+)\s*[題题].{0,60}电脑作答卷")
@@ -79,11 +110,34 @@ MCQ_RANGE = re.compile(r"从第\s*(\d+)\s*[題题]到第\s*(\d+)\s*[題题].{0,6
 # without even a space in "7.巴士在繁忙时间挤满了搭客"). Reading only the bare
 # form left the bank size unknown on five years, and the fallback assumed four
 # entries where the paper prints eight -- half the bank invisible to a child who
-# has to choose from it. A separator of some kind is always required, so the
-# page number sitting alone at the top of the page cannot be read as an entry.
-BANK_ENTRY = re.compile(r"^(?:[（(]\s*(\d+)\s*[）)]|(\d+)\s*[.．、]|(\d+)\s+)\s*\S")
+# has to choose from it. The bare form's own spacing is not reliable either --
+# a 2026 prelim reads seven of its eight entries with a space and the eighth,
+# "7他们知道了又怎么样", with none at all -- so the space after a bare number
+# is optional. Nothing is lost by that: the page number sitting alone at the
+# top of the page still cannot match, since there is no \S left on the line
+# for the trailing requirement to consume.
+#
+# The bare form is capped at a single digit 1-9 -- every bank in the corpus
+# tops out at eight entries (CLAUDE.md section 7.3) -- because a school
+# prelim's Q28 once lost its "Q" outright, OCRing as bare "928" on a page
+# whose current section genuinely is the answer bank. Uncapped, that satisfies
+# this same alternative and is captured as bank entry 92; `max(entries)` then
+# treats it as the bank's own size and reports every number below it as
+# "missing", drowning the real, useful "Q28 is missing" signal in a
+# manufactured one.
+BANK_ENTRY = re.compile(r"^(?:[（(]\s*(\d+)\s*[）)]|(\d+)\s*[.．、]|([1-9])\s*)\s*\S")
 # An option marker beneath a question: "（1）", "(2)".
 OPTION = re.compile(r"[（(]\s*([1-4])\s*[）)]")
+# The opening bracket, not a digit inside it, is what a school prelim's option
+# line drops -- "（2）邀请居民们参加屋顶农场讲座" comes back "12） 邀请...",
+# "（4）到民众俱乐部..." comes back "14）...", and "（1）能够加强..." comes
+# back "（1.）能够加强...", each losing (or gaining) a different character
+# right around the bracket. What survives every time is the option digit
+# immediately before the closing bracket, optionally through a stray leading
+# digit or a stray period -- so that is all this checks for, scoped to
+# where OPTION itself found too few. It never matches a mark allocation
+# ("2分）") because a Chinese character, not the bracket, follows that digit.
+OPTION_LOOSE = re.compile(r"([1-4])[.．]?\s*[）)]")
 # Booklet B's cover, in 2012-2020 where Paper 2 is two physical booklets. It is
 # printed in English and reads perfectly at 300 dpi, which makes it a better
 # anchor than anything Chinese on the page.
@@ -229,7 +283,18 @@ def index_paper(year: int, work_dir: Path = WORK_DIR) -> dict:
                 current = questions.setdefault(
                     number, Question(number=number, page=page,
                                      section=section, group=group))
-                current.tops.append(line.top)
+                # A number that resurfaces on a LATER page -- a school prelim's
+                # "作答簿" reprints the written questions' bare numbers a second
+                # time for the student to write beside -- must not add a `top`
+                # here. `_count_options` bands by `min(q.tops)` on `q.page`
+                # alone; a reprint page's coordinate is unrelated to the
+                # original page's geometry, and picking it up once turned
+                # TaoNan's Q33 -- a writing task -- into a false 4-option
+                # "choose" question, because the reprint page's own Q30-32
+                # placeholders sit at a `top` smaller than anything on Q33's
+                # real page.
+                if page == current.page:
+                    current.tops.append(line.top)
 
             # Hold damaged labels; they are resolved by position once the sequence
             # is known, never by guessing at the glyphs.
@@ -238,6 +303,9 @@ def index_paper(year: int, work_dir: Path = WORK_DIR) -> dict:
                     if not raw.isdigit():
                         garbled.append({"page": page, "top": line.top, "raw": raw,
                                         "section": section, "group": group})
+                for raw in QUESTION_DAMAGED.findall(text):
+                    garbled.append({"page": page, "top": line.top, "raw": raw,
+                                    "section": section, "group": group})
 
             marks = MARKS.findall(text)
             if not marks:
@@ -278,12 +346,40 @@ def index_paper(year: int, work_dir: Path = WORK_DIR) -> dict:
             mcq_range = (min(before), max(before))
             repairs.append(f"MCQ range Q{mcq_range[0]}-Q{mcq_range[1]} taken from "
                            f"Booklet B's cover on p{booklet_b_page}")
+    if mcq_range is None:
+        # A school prelim can omit the "从第1题到第25题...电脑作答卷" sentence
+        # entirely rather than mis-OCR it -- several 2026 prelims print nothing
+        # of the kind anywhere on the cover. The first three sections always
+        # state their own count regardless, so their sum states the same fact
+        # a different way.
+        MCQ_SECTIONS = ("语文应用", "短文填空", "阅读理解一")
+        counted = [s["count"] for name in MCQ_SECTIONS for s in sections
+                  if s["section"] == name and s["count"]]
+        if len(counted) == len(MCQ_SECTIONS):
+            mcq_range = (1, sum(counted))
+            repairs.append(f"MCQ range Q1-Q{mcq_range[1]} derived from the "
+                           f"first three sections' own stated counts")
     if written_range is None and mcq_range:
-        stated_end = max((g["end"] for g in groups), default=None)
+        # A group's own range can be as damaged as its digits get ("Q3-933"
+        # for "Q30-Q33") while its count survives intact -- the same failure
+        # `validate` refuses to walk. Taking the highest such `end` here would
+        # feed the same garbage into the written range, so a group is only a
+        # candidate when its range and count agree.
+        stated_end = max((g["end"] for g in groups
+                          if g["count"] is None
+                          or g["end"] - g["start"] + 1 == g["count"]), default=None)
         counted = sum(s["count"] for s in sections if s["count"])
         end = stated_end
         if end is None and counted and all(s["count"] for s in sections):
             end = counted
+        if end is not None and end <= mcq_range[1]:
+            # `sections` held only the MCQ ones -- the paper's written pages
+            # were never found at all (2026 AiTong's Paper 2 scan stops after
+            # the MCQ section, though its own answer key covers Q26-Q40), so
+            # `counted` summed to the MCQ range's own end and "derived" a
+            # written range that runs backwards. Nothing genuine to derive
+            # from beats a range that does not make sense.
+            end = None
         if end is None:
             warnings.append("no stated end for the written range; the last "
                             "question is unchecked")
@@ -293,9 +389,15 @@ def index_paper(year: int, work_dir: Path = WORK_DIR) -> dict:
                            f"derived from the booklet split and the group headers")
 
     # Numbering is contiguous and both ends are stated, so a missing number is
-    # never in doubt -- only which damaged label belongs to it.
-    if mcq_range and written_range:
-        for number in range(mcq_range[0], written_range[1] + 1):
+    # never in doubt -- only which damaged label belongs to it. A paper whose
+    # written section could not even be found at all (2026 AiTong's Paper 2
+    # scan stops after the MCQ section) still has a real, known end for the
+    # part that IS there, so recovery within the MCQ range should not wait on
+    # a written range that may never come.
+    recovery_end = written_range[1] if written_range else (
+        mcq_range[1] if mcq_range else None)
+    if mcq_range and recovery_end is not None:
+        for number in range(mcq_range[0], recovery_end + 1):
             if number in questions:
                 continue
             before, after = questions.get(number - 1), questions.get(number + 1)
@@ -391,6 +493,12 @@ def _count_options(questions: dict[int, Question],
         for line in lines:
             if top - 20 <= line.top < bottom:
                 seen |= {m.group(1) for m in OPTION.finditer(line.text)}
+        if len(seen) < DEFAULT_OPTIONS:
+            # The strict read came up short -- try the same band again,
+            # allowing a digit whose opening bracket did not survive OCR.
+            for line in lines:
+                if top - 20 <= line.top < bottom:
+                    seen |= {m.group(1) for m in OPTION_LOOSE.finditer(line.text)}
         counts[q.number] = len(seen)
     return counts
 
@@ -440,6 +548,20 @@ def validate(paper: dict) -> list[str]:
 
     for entry in paper["groups"]:
         wanted = range(entry["start"], entry["end"] + 1)
+        # The header states a range and a count together ("A组（Q30-Q33，4题
+        #10分）"), and the two are independent OCR reads of the same fact --
+        # a school prelim once misread that whole run as "A组（Q3-933,4題
+        # 10分）", count intact, range destroyed. A range that disagrees with
+        # its own stated count cannot be walked for missing questions without
+        # inventing hundreds of them, so it is reported and skipped rather
+        # than trusted -- the same "refuse rather than guess" rule CLAUDE.md
+        # section 1.6.1 applies to a single digit applies here to a whole run.
+        if entry["count"] is not None and len(wanted) != entry["count"]:
+            problems.append(
+                f"{entry['group']}組: header range Q{entry['start']}-"
+                f"Q{entry['end']} does not match its own stated count "
+                f"({entry['count']}); range not checked")
+            continue
         missing = [n for n in wanted if n not in questions]
         if missing:
             problems.append(f"{entry['group']}組: missing Q{missing}")

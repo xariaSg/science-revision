@@ -771,8 +771,8 @@ original premise and it is worth not relitigating:
   error rate on L2/heritage child Mandarin is a much larger risk than the English
   case ever was. Unmeasured, and not worth measuring unless the premise changes.
 
-Three response modes, decided by the paper rather than by preference, and recorded
-per question in `questions.json`:
+Three response modes exist in the paper itself, decided by the paper rather than
+by preference, and recorded per question in `questions.json`:
 
 | mode | questions | marked by |
 |---|---|---|
@@ -780,11 +780,57 @@ per question in `questions.json`:
 | `typed` | Q34–Q40 | keypoints (2023+), else self-marked |
 | `self_marked` | Q33 | the student, against the model answer |
 
+`build/cn_key.py`/`cn_rubric.py` (PSLE) and `build/cn_prelim_key.py` (prelims)
+still key and rubric all three — that full-paper cross-checking is what catches
+a dropped question (§1.6.1) — but as of §7.6.1 below, the app itself only ever
+serves and marks the first of them.
+
 **Nothing is marked until the paper is finished.** Marking each answer as it is
-given turns a 40-question paper into 40 little tests, and a running total invites
+given turns the paper into a string of little tests, and a running total invites
 watching the number instead of reading the passage. Answers are collected — and
-persisted to `localStorage`, because 40 questions is a long sitting to lose to a
+persisted to `localStorage`, because a sitting is long enough to lose to a
 stray refresh — and the marks arrive once, at the end.
+
+#### 7.6.1 The app is permanently scoped to Booklet A
+
+`app/chinese.py` marks Booklet A only: the paper's own OAS-answered sections,
+语文应用, 短文填空 and 阅读理解一 — the same three sections `build/cn_index.py`'s
+`MCQ_SECTIONS` sums to derive the paper's own "从第1题到第25题…电脑作答卷"
+boundary (§7.5 item 0). This is a real seam already printed on the paper, not
+an invented one: everything on this side of it is filled in on an Optical
+Answer Sheet, everything past it is written into the booklet or a separate
+作答簿. 完成对话 happens to be answered by choosing from a bank the same way a
+`choose` question is, but it is written into the booklet rather than bubbled on
+the OAS, so it sits on the far side of the seam along with the whole of
+阅读理解二 — both are out of scope, permanently, not just unbuilt.
+
+Every question the app now serves is therefore `choose`, marked against the
+key — the `typed`/`self_marked` machinery above (`cn_grade.py`,
+`build/cn_rubric.py`) is left in place because the build still keys and rubrics
+the whole paper, but nothing in `app/chinese.py` calls into it any more.
+
+The question count and mark total this leaves are read off each paper's own
+sections, never hardcoded to a single number: 25 questions / 50 marks for
+2017–2025 and the 2026 prelims, but 23 questions / 46 marks for 2012–2016,
+which numbers its first three sections differently (§7.3). Two 2026 prelims —
+Nanyang and Nan Hua — come one question short of that (24/48 each), already
+flagged `needs_review` by the indexer; the app's totals move with whatever the
+index actually reports rather than assuming the full count, which is what
+keeps a real gap visible instead of silently averaged away.
+
+**This surfaced a bug in the attempt log, not just a scope question.** Practice
+on this machine had already run against real papers before this scope existed
+— the 2024 paper's log holds genuine answers out to Q32 from two sittings on
+17 Aug. `score()` and `_progress()` originally computed the denominator
+(`available`, `slots`) from Booklet A alone while still summing the numerator
+(`earned`, `best`) from every logged row regardless of scope, so a historical
+attempt on a now-out-of-scope question could inflate a score against a total
+that no longer counted it. The fix sits in `chinese._attempts()`, the one place
+every other function reads logged rows from: it now filters to each paper's own
+Booklet A question numbers before anything downstream sums or ranks them, so
+`score()`, `_progress()` and `paper_day_attempts()` stay consistent with the
+same scope by construction rather than by each remembering to filter it
+themselves.
 
 ### 7.7 Build order and coverage
 
@@ -1193,10 +1239,12 @@ for anyone to notice, so only the booklet's own question count reveals it.
 
 ## 11. English Paper 2
 
-Built for **one paper**: Nanyang's 2026 prelim, both booklets. Everything below
-was confirmed by direct inspection. The corpus will grow — the source folders
-hold 2020–2026 — so where a claim is true of this paper rather than of English
-papers in general, it says so.
+Built for **ten schools' 2026 prelim**, both booklets: Nanyang first, then ACSJ,
+Ai Tong, CHIJ OLGS, Nan Hua, PLMGS, Raffles, Red Swastika, St Nicholas and Tao
+Nan, ingested together once Nanyang's pipeline was proven. Everything below was
+confirmed by direct inspection. The corpus will grow further — the source
+folders hold 2020–2026 — so where a claim is true of one paper or one naming
+convention rather than of English papers in general, it says so.
 
 The third subject, and it settles a question the first two left open: what
 carries across a subject boundary and what does not. Booklet A is multiple
@@ -1230,6 +1278,27 @@ became fourteen failures with no code change.
 - **Pure scans.** One Booklet A page carries a partial Latin-only OCR text layer,
   and it is mangled exactly the way the Chinese compilations' is
   (`ȧitpeted a'nd. it dieȨ .ȩ.Ȫȫrtl}!`). Never read it; Vision is the only source.
+
+**The nine schools ingested alongside Nanyang use a second naming convention
+entirely**, and it is the Chinese prelims' convention (§12), not the Science
+prelims' or Nanyang's own: a directory per part (`Booklet A/`, `Booklet B/`,
+`Answer key/`) holding one file per school named `2026_RedSwastika.pdf` —
+underscore-separated, no spaces, camelCase or an acronym for the school. Two
+things in `build/en_corpus.py` had to change for it:
+
+- `FOLDER_FILE_RE` accepted only a `year-school.pdf` shape (`2025-Nan Hua.pdf`,
+  the 2025 prelims' own convention); `[-_]` widens the separator to match this
+  underscore form too, without touching the hyphenated one.
+- `slugify()` gained the same `CAMEL_BOUNDARY` capitalisation split
+  `build/cn_prelims.py` already uses for Chinese — "RedSwastika" has no space
+  for a naive split to find — and a matching `display_name()` now runs on
+  every ingested school so the child sees "Red Swastika" on the picker, not
+  the raw slug. Left unfixed, the *slug* ("red-swastika") was already correct
+  by the same camel-split logic; only the human-facing label was wrong, and
+  wrong in a way easy to miss because the id still worked.
+
+Every one of the nine is a pure scan with no text layer, confirmed the same
+way as Nanyang's own three files.
 
 `build/en_unpack.py` renders into **three roots of its own** — `work-en-a`,
 `work-en-b`, `work-en-ans`. Separate from Science's for a reason that is not the
@@ -1302,6 +1371,63 @@ back with fewer than four `(n)` markers — "(1)" reads as "trim", Q17's "(1)" a
 drives a banner in the app, and a banner that is always on for a correctly
 indexed paper teaches the student to ignore the one that matters.
 
+#### 11.2.1 The nine 2026-prelim schools surfaced five more failure modes
+
+Sampled the same way §12.1 samples the Chinese prelims: run the real parser
+against nine independently-typeset papers, fix each failure in the shared
+module rather than per school, and re-run all ten (Nanyang included) after
+every change with an identical result on the nine that already passed.
+
+1. **"For" can vanish more completely than a dropped leading letter.** Ai
+   Tong's Q16–20 header OCRs as "ur each question from 16 to 20" — not "or"
+   with the "f" gone (`SECTION_RE`'s existing tolerance, §11.2 above), a
+   different word entirely. `SECTION_RE` now accepts *either* a (possibly
+   garbled) "for/or" before "each", *or* "each" on its own — never "each"
+   alone, which would also match stray prose, so one of the two anchors must
+   still be there. The same paper's Q11–15 header also OCRs "to" as "lo"
+   ("from 11 lo 15"), joining the accepted separators alongside the dash forms
+   already there.
+2. **A section can have no header at all, not even a garbled one.** ACSJ's
+   Q11–15 instruction is a total dropout — no trace of "For each question…"
+   survives anywhere near its page — and PLMGS never states one for Q1–10 in
+   the first place, printing only "SECTION A: GRAMMAR (10 x 1 = 10 marks)"
+   with no range sentence. `fill_gaps` in `build/en_index.py` closes both: a
+   run of questions between two *real* headers (or before the first one)
+   belongs to nothing else in this booklet, so it is searched for directly in
+   the shared band. A gap between two headers needs no corroboration to
+   accept — nothing else is ever printed there — but a *leading* gap (nothing
+   real precedes it) is accepted only when a "SECTION … (n marks)" heading is
+   found inside it; without that a cover's own numbered instructions would be
+   indistinguishable from real questions 1–10, the trap §1.5 documents for
+   Science. Marks are searched for only ahead of a leading gap, too — a
+   between-gap's shared band opens with the *previous* section's own trailing
+   "(N marks)", and searching it blind attributed Q1–10's total to Q11–15.
+3. **A header's own digits can be misread even when the header is found.**
+   Raffles' Vocabulary Cloze section OCRs as "questions 18 to 20" where every
+   question's own margin numbers it 16 and 17 plainly. Sections in this
+   corpus are never non-contiguous, so a gap directly against the previous
+   section is closed — but only when doing so makes the section's *own*
+   stated marks divide evenly across the widened count (here, 5 marks over 5
+   questions instead of 5 over 3). A genuinely separate unheaded section
+   (mode 2 above) has no reason to satisfy that arithmetic by coincidence,
+   which is what keeps the two fixes from fighting each other.
+4. **A section's own marks search can run past the end of the booklet.**
+   Nan Hua's Q21–25 states no mark total anywhere near its header, and
+   without a bound the search continues past the "Please note… in Booklet B"
+   handover sentence and picks up Booklet B's Comprehension section's
+   "(20 marks)" instead — a real figure, just not this section's. The search
+   is now capped at the first row anywhere in the booklet that mentions
+   Booklet B.
+5. **"N x per mark = total marks" is a fourth way of stating a section's
+   total**, on top of the bare "(N marks)" and the "(N x per mark)" `SECTION_TOTAL_RE`
+   already reads. PLMGS states every section this way — "(5 x 1 mark = 5
+   marks)" — and the "=" breaks `SECTION_TOTAL_RE`'s assumption that the
+   per-question figure sits directly before "marks". Read as a bare "N marks"
+   phrase instead, it would report the *per-question* value (1), not the
+   total (5); `SECTION_EQUALS_RE` reads the total directly, since it is
+   printed in as many words and multiplying it back out risks the same
+   transcription slip it exists to catch.
+
 ### 11.3 Booklet B: five sections, and two state no range
 
 65 marks, and the cover's score box prints "Booklet B / 65" — an independent check
@@ -1362,6 +1488,29 @@ tables, ticks and explanations; marking them needs the hand-authored rubric §3
 describes and §10.5 explains is not worth faking. Its pages are still served —
 the booklet is the booklet — but it carries no answer card, and the answer list
 names it once at the foot rather than as ten rows of apology.
+
+#### 11.3.1 The nine 2026-prelim schools, continued: two OCR-tolerance fixes,
+one structural one
+
+`RANGE_RE` needed the same "to" tolerance §11.2.1 gives `SECTION_RE`, because
+Booklet B states its ranges the same way and OCRs them just as inconsistently
+— Raffles' "numbered 26 **lo** 35" and ACSJ's "questions 66 **lo** 75" both
+join the accepted separators, and Ai Tong's "questions 66 **10** 75" (the
+whole word "to" read as the digits one-zero) joins them a second way. The
+response-mode "word" pattern needed the same dropped-leading-letter tolerance
+too: Ai Tong's Editing instruction reads "Write the **orrect** word", the "c"
+gone the way "For" loses its "f" elsewhere in this corpus.
+
+**A response mode can have real evidence with no readable instruction at
+all.** CHIJ OLGS's grammar-cloze instruction is not merely garbled — its
+opening lines never come back from Vision at all, confirmed against the scan
+by eye — but the lettered word bank a few rows below it ("(A) a (D) can (G)
+if…") survives intact. Response-mode matching now also scans a short forward
+window past each section's marks statement, not just backward from it, and
+the "letter" pattern gained a second form: three or more "(LETTER) word"
+entries running through the alphabet in sequence, uppercase only so a
+comprehension answer's lowercase "(a) … (b) …" sub-parts can never be mistaken
+for it.
 
 ### 11.4 The answer keys, which are two different problems on one sheet
 
@@ -1442,6 +1591,69 @@ All 40 answers read, one by re-read. **The grammar cloze prints both halves of i
 answer** — "F (had)" — so both are accepted; Q26 prints two lines, "F (had)" and
 "G (have)", because either fits the blank.
 
+#### 11.4.1 The nine 2026-prelim schools print a third key layout, read by eye
+
+Neither `build/en_key.py`'s ruled-cell reader nor `build/en_key_b.py`'s column
+reader was built against this layout, and both were tried before falling back
+to a person, on §10.4's exact precedent for a grid too watermarked to trust an
+automated read of.
+
+**Booklet A's key is a *row-pair* grid, not `en_key.py`'s column-pair one.**
+Nanyang's table alternates question and answer *columns* side by side four
+times over; these nine print one wide table per section — a header row of
+"Q1 Q2 Q3 … Q10", the answer row directly beneath it — repeated down the
+page. `find_tables()`'s row/column-rule detection finds **zero** tables on
+this shape; it was written for a table whose header spans the *whole* table
+width, and this one has ten of them. Rather than teach the geometry reader a
+second table shape for a corpus this size, all 25 Booklet A answers for all
+nine schools are read directly off the 300 dpi render (zoomed to 2–3× over
+every cell a watermark crosses) and recorded in `review/en-mcq-key.json`
+alongside Nanyang's own entries. Eight of the nine share one source template
+— a heavy "sgexam.com"/"testpaper.com" watermark whose white typeface prints
+through its own black shapes as a legible cutout, the same effect §12.2
+records for the Chinese prelim keys; CHIJ OLGS uses the school's own plainer
+`Question | Answer`-column template with only a light, non-obscuring diagonal
+watermark.
+
+Because `en_key.py`'s `extract()` already merges in whatever
+`review/en-mcq-key.json` supplies when the automated pass returns nothing to
+disagree with (§10.4's precedent, unchanged), no code needed to change for
+Booklet A — only the review file needed nine more entries.
+
+**Booklet B needed an equivalent review file that did not exist yet**:
+`review/en-b-answers.json`, and a `verified_key_b()` in `build/en_key_b.py`
+mirroring `en_key.py`'s `verified_key()` on the same terms — fills a gap,
+never quietly overrules a disagreement. One difference from Booklet A's
+digit comparison: a free-text word or sentence can differ from a by-eye
+transcription in capitalisation or spacing alone without actually
+disagreeing about the word, so the comparison is case- and
+whitespace-normalised before two readings are called a disagreement — a
+digit key has no equivalent problem, since "3" and "3" never differ that way.
+
+**CHIJ OLGS's Booklet B column reader doesn't misread cells — it misreads
+which *row* it is reading.** Its own "BOOKLET B / Question / Answer"
+sub-header, printed a second time partway down the answer column (§12's
+Chinese prelims hit an analogous reprint problem, §12.1 item "作答簿"), shifts
+the reader's row alignment for everything beneath it: it reads Q34 as "K"
+(really Q35's answer, one row down) and Q43 as "not" (really Q46's), both
+confirmed wrong against the scan by eye. That is a geometry bug for this one
+layout, not a row-by-row disagreement to referee — forcing it through the
+ordinary disagreement gate would refuse the *whole* key over a handful of
+misaligned rows a person has already read correctly, and silently preferring
+whichever side looks less noisy would be exactly the guessing §1.6.1 rules
+out. So `review/en-b-answers.json` can mark a paper `"fully_verified": true`,
+which skips the column reader for that paper entirely — the same bypass a
+native PDF text layer already gets in `extract()`, dropping one
+demonstrated-unreliable source rather than arguing with it.
+
+**Sentences are transcribed exactly as printed, school-authored typos
+included** — Nan Hua's Q63 prints "sigh" for "sign" and Q65 "Noi" for "Not",
+Tao Nan's Q65 is missing a "by" its own grammar wants. These are self-marked
+reference answers a child compares her own sentence against; silently
+"fixing" the school's own key would make the review file assert something
+the scan does not show, the same discipline §1.6 and §10.4 hold answer-page
+transcription to everywhere else in this project.
+
 ### 11.5 Marking — how English differs from §3 and §7.6
 
 - **§3.1 chains, §3.3 the contextual gate: do not apply.** There is no cause and
@@ -1474,12 +1686,21 @@ invites watching the number instead of reading the passage.
 
 ### 11.6 The app
 
-**The booklet is chosen before the paper.** Science asks for the paper and then
-greys out a booklet it has no index for; English asks for the booklet and then
-lists only the papers built for it. That is the better order once the two halves
-of a subject are backfilled at different rates — a paper offered and then refused
-is a worse step than one never offered — and it is declared by the subject
-(`mode_first`) rather than hardcoded in the front end.
+**The paper is chosen before the booklet, the same order as Science.** This
+reversed once: while Nanyang was the only paper built, English asked for the
+booklet first and then listed only the papers built for it — the better order
+when a subject's two halves are backfilled at wildly different rates, since a
+paper offered and then refused is a worse step than one never offered. Ten
+schools with both booklets built for every one of them removed the reason for
+the exception, so `mode_first` was dropped from English's subject declaration
+in `app/main.py` (and, with nothing left to set it, from the front end
+entirely — `home.mode` was live state for exactly one flag). Picking a paper
+now shows "which booklet?" with any half not yet indexed for it greyed out,
+using the same per-paper lookup Science's screen already needed
+(`mode.groups` from `/api/subjects`, checked for the chosen paper's id)
+rather than the `state.papers` global that used to be Science's alone —
+English now goes through the identical code path, not a parallel one that
+happened to agree.
 
 The practice screen is the Chinese one's shape, not Science's, and shares its CSS:
 the booklet scrolls on one side and every answer card sits on the other. Both
@@ -1530,3 +1751,169 @@ so only the booklet's own question set reveals it.
 - **Paper 1 (composition)** and the oral.
 - **Grader consistency (§6.3) is unmeasured**, as it is for the other two subjects
   — though English needs it least, since nothing it marks goes near a model.
+
+---
+
+## 12. The 2026 Chinese prelims
+
+Ten schools' Chinese Paper 2, built alongside the Science and English prelims as
+practice material in the same format as the PSLE Chinese corpus (§7). Source:
+`Chinese/2026-prelims/Paper 2/` and `.../Answers/`, already split per school —
+the gift §10.2 and §11.1 describe, not a compilation §7.1's boundary detection
+is needed for.
+
+### 12.1 It is the 2021–2025 PSLE format, almost verbatim
+
+Sampled across all ten schools before writing any new parser: every one
+replicates the modern-era structure exactly — the same five sections
+(语文应用/短文填空/阅读理解一/完成对话/阅读理解二), the same MCQ/written range
+wording, the same A组/B组 split, 40 questions, 90 marks. `cn_index.py` never
+hardcodes those numbers — it reads the paper's own headers and checks what it
+found against what they state (§7.3) — so it generalises to a differently
+authored paper in the same format with no new parser needed.
+`build/cn_prelims.py` (ingest, paper id `2026-prelim-<school>`, camelCase
+filenames split on the capital — `RedSwastika` → `red-swastika`),
+`build/cn_prelim_index.py` (thin wrapper over `cn_index.index_paper`/`validate`,
+passing the paper id where a year would go) and `build/cn_prelim_key.py` (the
+answer key) do the rest.
+
+Running the real parser against ten independently-typeset papers surfaced six
+new OCR failure modes, none seen in fourteen years of the EPH corpus, and each
+was fixed in the shared `cn_index.py` rather than papered over per school —
+confirmed by re-running the full 14-paper corpus after every change with an
+identical result:
+
+1. **A section name can drop or reposition its own numeral** rather than
+   mis-OCR it: "阅读理解（5题10分）" with no "一" anywhere, "阅读理解（一）
+   （5題10分）" with the numeral parenthesised. `SECTION_STEMS` now carries a
+   bare "读理解" fallback (tried last, so it never wins over an explicit "二")
+   and the parenthesised forms.
+2. **对 misreads as 时**: "完成对话" came back "完成时话" on one paper, and with
+   no stem covering it the section never opened — Q26-28 were silently filed
+   under the previous section rather than flagged as unreadable.
+3. **A group header's range can be destroyed while its count survives**:
+   "A组（Q30-Q33，4题10分）" came back "A组（Q3-933,4題10分）" twice, in two
+   different schools. Walking `range(3, 934)` for missing questions invents
+   hundreds of them; `validate()` now refuses to walk a group range that
+   disagrees with its own stated count, reporting it instead.
+4. **The MCQ range statement can be absent altogether** rather than misread —
+   three schools print no "从第1题到第25题…电脑作答卷" sentence anywhere. It is
+   now derived from the first three sections' own stated counts when the direct
+   statement is missing, and the tier-2/3 garbled-label recovery loop no longer
+   requires a *written* range to exist before repairing the MCQ portion (needed
+   for a paper whose Paper 2 scan stops before the written section, below).
+5. **The "Q" itself can be misread as a bare digit** — "Q17"/"Q18"/"Q19" came
+   back "017"/"918"/"919" — rather than a digit *inside* a real "Q…" match,
+   which is all the existing CONFUSABLE repair covers. `QUESTION_DAMAGED`
+   catches this scoped to immediately before an option opener ("（1"–"（4"),
+   because that is the one place a bare number in this layout always means a
+   damaged question label and never a date or a price in the surrounding prose.
+6. **An option's own bracket or digit can be damaged independently of its
+   question label**: "（2）" came back "12）" (opening bracket gone, a stray
+   leading digit), "（1）" came back "（1.）", and "（1）"/"（3）" came back
+   "（下）"/"（g）" (digit replaced by an unrelated glyph). `OPTION_LOOSE`
+   recovers the first two forms, scoped to firing only when the strict `OPTION`
+   count already came up short; the third (glyph substitution) is not
+   recovered and is documented as a residual gap (ACSJ Q32, RedSwastika Q32 —
+   both filled from `review/cn-prelim-written-answers.json` instead, noting
+   the correct option rather than leaving a blank).
+
+One more fix was Chinese-prelim-specific rather than general: a school's
+"作答簿" reprints the written questions' bare numbers a second time for the
+student to write beside (TaoNan's pages 14-18, matching §7.1's `Paper2`/`Answer`
+split's own precedent for a Booklet B that reprints itself). A reprint's `top`
+sits in a coordinate space unrelated to the original page's, and picking it up
+into a question's `tops` list corrupted `_count_options`'s banding — TaoNan's
+Q33, a writing task, came back as a false 4-option "choose" question because
+the reprint page's own blank Q30-32 labels sat at a `top` smaller than
+anything on Q33's real page. `current.tops.append` is now guarded to the
+question's own page.
+
+### 12.2 The MCQ key is read by eye for all ten schools, not by OCR
+
+Every one of the ten answer keys is a scanned grid (`review/cn-prelim-mcq-key.json`
+holds the full narrative). Unlike the Science and English prelim keys, where
+most schools typed their answers and OCR or the PDF text layer read them
+outright, none of these ten is typed — and nine of the ten carry a heavy
+diagonal watermark sitting directly across several answer cells. Building a
+geometry reader (§10.4, §11.4's ruled-cell approach) tuned against one
+school's table shape and then retuning it against nine more one-off layouts
+was judged not worth it for a corpus this size; the grid was read visually
+against the 300 dpi render instead, with every watermark-obscured cell
+re-read a second time from a 1.2×–2× crop (the white typeface prints through
+the watermark's black shape as a legible cutout). TaoNan's answer PDF *does*
+carry a clean typed text layer for its grid, but it disagreed with the ruled
+table on Q30/Q31 — the text stream interleaves two page columns, and a naive
+label-run/answer-run pairing walked past the true value — so the visual read
+was kept as authoritative there too.
+
+`build/cn_prelim_key.py` treats that file as ground truth for these ten papers
+(there is no competing OCR read to reconcile it against) and validates it only
+against what `cn_prelim_index.py` found the paper to be asking: every "choose"
+question needs an entry, and every entry must be a valid option — checked
+against the *bank's* 1–8 range for 完成对话 questions rather than against
+indexing's own `options` count, because that count is the one thing indexing
+could not always read reliably (below) and the hand-verified key is the more
+trustworthy side of that disagreement.
+
+### 12.3 Written answers are self-marked, like the Science prelims
+
+None of the ten keys prints CLAUDE.md §7.4's inline mark markers throughout in
+a form safe to auto-parse across all ten — two schools (ACSJ, AiTong) use
+circled-number reference markers in *some* answers, others use parenthesised
+point values, TaoNan adds handwritten deduction notes in the margin. Rather
+than build a marker parser for a minority of one-off formats, every written
+question here is self-marked (§10.5's "the chains are not authored" applies
+unchanged), and the model answers themselves (`review/cn-prelim-written-answers.json`)
+were transcribed by eye rather than OCR'd, for the same reason the MCQ grid
+was: these pages mix print, boxed tables and handwriting that the shared
+`page_lines()` pass does not read cleanly enough to show a child unreviewed.
+
+### 12.4 Two known gaps, neither silent
+
+- **完成对话's answer bank is not always fully readable.** `BANK_ENTRY` expects
+  each bank phrase on one line with its number; two schools (RedSwastika,
+  StNicholas) lay the bank out with the number on its own line and the phrase
+  on the next, which this format cannot join. Indexing falls back to assuming
+  four options and reports it (`needs_review`); `cn_prelim_key.py`'s wider
+  1–8 bank check means a hand-verified answer outside that assumed range
+  still validates correctly even though the option *count* shown to the child
+  would be wrong. Not fixed here — a genuinely different table layout, not a
+  glyph-confusable one.
+- **RedSwastika has two digit-substitution misreads in its question numbers
+  themselves** ("Q30" read cleanly as "Q151" from a merged bracket, "Q22" read
+  as "Q42") that produce a clean, in-range *exact* match rather than a garbled
+  candidate — invisible to every recovery tier, which all key off an ambiguous
+  glyph to trigger. The real Q16 and Q22 are correctly reported missing; the
+  phantom Q42/Q151 entries are harmless orphans nothing ever looks up. This is
+  the only school left with `needs_review` on its key step.
+
+### 12.5 AiTong was rebuilt from its own compilation; Nanyang could not be
+
+AiTong's pre-split Paper 2 file stopped after the MCQ section (7 pages against
+the ~13 every other school's runs to) — a truncated export, not a different
+paper: its own whole-exam compilation at the top level of the source folder
+(`P6_Chinese_Prelim_2026_AiTong_Exam_Papers.pdf`) contains the complete 40
+questions and matches AiTong's own answer key exactly. Pages 2–21 of that
+compilation were extracted as the replacement `Paper2/2026-prelim-ai-tong.pdf`
+(§9's registry note records the substitution); AiTong now indexes and keys
+completely clean.
+
+**The equivalently-named Nanyang compilation is not usable the same way.**
+Its content is byte-for-byte AiTong's — same passages, same 迟到/领养 story —
+with a single stray Nanyang-titled page appended at the end. This looks like a
+mix-up at the source rather than anything to reconstruct from. Nanyang's own
+pre-split Paper 2 file *is* genuine, unique content (a 机器人 exhibition
+scenario matching its own answer key), but stops at 31 of 40 questions — the
+whole of B组 (Q34-40) and Q29 are simply not in the scan. Confirmed with the
+user before proceeding (§2.1's spirit: better to ask than to guess at which
+file is authoritative when the two disagree) — the recommendation on file was
+to flag it for a re-scan rather than build from the mismatched compilation.
+
+### 12.6 Not built
+
+- **Auto-marking for written questions**, and not just here — §7.6.1 scopes
+  the whole Chinese app to Booklet A, so this is permanently out of scope
+  rather than pending. §12.3 above.
+- **RedSwastika's key** and **the two schools' answer banks** in §12.4.
+- **Grader consistency (§6.3) is unmeasured**, as for every other corpus.

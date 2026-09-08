@@ -23,7 +23,32 @@
     "cells unaided. The other 15 are read by eye from the same 300 dpi render, at",
     "full resolution. All 25 are listed here rather than just the gaps, and the 10",
     "the reader did establish agree with the eye reading on every one -- see",
-    "work-en-ans/2025-prelim-nanyang/mcq-answers.json before this file was added."
+    "work-en-ans/2025-prelim-nanyang/mcq-answers.json before this file was added.",
+    "",
+    "The nine 2026-prelim schools ingested alongside Nanyang (ACSJ, Ai Tong, CHIJ",
+    "OLGS, Nan Hua, PLMGS, Raffles, Red Swastika, St Nicholas, Tao Nan) all use a",
+    "third layout again: one wide ruled table of Q-number *rows* (a header row of",
+    "Q1..Q10 etc, the answer row directly beneath it) rather than 2025-Nanyang's",
+    "alternating question/answer *columns* -- find_tables()/read_grid() in",
+    "en_key.py were tuned against the column-pair shape and find zero tables on",
+    "this one, so all 25 of each are read by eye rather than left to a reader",
+    "that cannot see the geometry at all. Eight of the nine share one source",
+    "template (a heavy 'sgexam.com'/'testpaper.com' watermark, white text",
+    "printing through its black shapes as a legible cutout -- the same effect",
+    "CLAUDE.md section 12.2 records for the Chinese prelim keys); CHIJ OLGS uses",
+    "the school's own plainer Question/Answer-column template with only a light,",
+    "non-obscuring diagonal watermark. Every cell on every one of the nine was",
+    "read at 2-3x zoom and cross-checked against the page's own OCR text where the",
+    "watermark did not interfere; none disagreed.",
+    "",
+    "St Nicholas's Answer key PDF carries a stray extra page at the front -- page",
+    "1 is actually the tail end of the question booklet (Q73-75, 'END OF PAPER'),",
+    "not part of the key at all -- so its grid is on page-002.png, not page-001.png",
+    "as for the other eight. A one-off filing slip in the source, not a format",
+    "difference; build/en_key.py's booklet_bands() already searches every page for",
+    "a 'BOOKLET A' heading rather than assuming page 1, so this needs no code",
+    "change, only noting here in case work-en-ans/ is ever rebuilt and the page",
+    "count looks wrong at a glance."
   ],
   "2026-prelim-nanyang": {
     "school": "Nanyang",
@@ -43,6 +68,105 @@
       "11": 4, "12": 3, "13": 4, "14": 2, "15": 4,
       "16": 4, "17": 1, "18": 2, "19": 2, "20": 4,
       "21": 1, "22": 1, "23": 4, "24": 3, "25": 4
+    }
+  },
+  "2026-prelim-acsj": {
+    "school": "ACSJ",
+    "read": "by eye from work-en-ans/2026-prelim-acsj/pages/page-001.png",
+    "answers": {
+      "1": 1, "2": 4, "3": 4, "4": 3, "5": 1,
+      "6": 4, "7": 3, "8": 2, "9": 1, "10": 4,
+      "11": 3, "12": 2, "13": 3, "14": 2, "15": 1,
+      "16": 4, "17": 3, "18": 2, "19": 2, "20": 4,
+      "21": 2, "22": 4, "23": 2, "24": 4, "25": 2
+    }
+  },
+  "2026-prelim-ai-tong": {
+    "school": "Ai Tong",
+    "read": "by eye from work-en-ans/2026-prelim-ai-tong/pages/page-001.png",
+    "answers": {
+      "1": 2, "2": 4, "3": 3, "4": 4, "5": 3,
+      "6": 4, "7": 2, "8": 1, "9": 1, "10": 3,
+      "11": 4, "12": 2, "13": 2, "14": 1, "15": 4,
+      "16": 2, "17": 3, "18": 3, "19": 4, "20": 1,
+      "21": 1, "22": 1, "23": 3, "24": 2, "25": 1
+    }
+  },
+  "2026-prelim-chij-olgs": {
+    "school": "CHIJ OLGS",
+    "read": "by eye from work-en-ans/2026-prelim-chij-olgs/pages/page-001.png",
+    "answers": {
+      "1": 2, "2": 3, "3": 1, "4": 3, "5": 2,
+      "6": 2, "7": 4, "8": 3, "9": 3, "10": 1,
+      "11": 3, "12": 3, "13": 4, "14": 4, "15": 1,
+      "16": 2, "17": 1, "18": 4, "19": 4, "20": 3,
+      "21": 2, "22": 4, "23": 2, "24": 1, "25": 4
+    }
+  },
+  "2026-prelim-nan-hua": {
+    "school": "Nan Hua",
+    "read": "by eye from work-en-ans/2026-prelim-nan-hua/pages/page-001.png",
+    "answers": {
+      "1": 4, "2": 2, "3": 2, "4": 2, "5": 3,
+      "6": 2, "7": 2, "8": 1, "9": 4, "10": 1,
+      "11": 1, "12": 2, "13": 4, "14": 2, "15": 3,
+      "16": 3, "17": 4, "18": 2, "19": 4, "20": 1,
+      "21": 2, "22": 4, "23": 3, "24": 1, "25": 4
+    }
+  },
+  "2026-prelim-plmgs": {
+    "school": "PLMGS",
+    "read": "by eye from work-en-ans/2026-prelim-plmgs/pages/page-001.png",
+    "answers": {
+      "1": 1, "2": 3, "3": 4, "4": 3, "5": 3,
+      "6": 3, "7": 3, "8": 4, "9": 1, "10": 3,
+      "11": 2, "12": 3, "13": 2, "14": 2, "15": 3,
+      "16": 3, "17": 4, "18": 2, "19": 2, "20": 2,
+      "21": 2, "22": 2, "23": 3, "24": 2, "25": 4
+    }
+  },
+  "2026-prelim-raffles": {
+    "school": "Raffles",
+    "read": "by eye from work-en-ans/2026-prelim-raffles/pages/page-001.png",
+    "answers": {
+      "1": 2, "2": 2, "3": 1, "4": 2, "5": 3,
+      "6": 3, "7": 3, "8": 1, "9": 3, "10": 1,
+      "11": 3, "12": 4, "13": 2, "14": 1, "15": 3,
+      "16": 4, "17": 2, "18": 2, "19": 1, "20": 2,
+      "21": 2, "22": 2, "23": 3, "24": 4, "25": 4
+    }
+  },
+  "2026-prelim-red-swastika": {
+    "school": "Red Swastika",
+    "read": "by eye from work-en-ans/2026-prelim-red-swastika/pages/page-001.png",
+    "answers": {
+      "1": 2, "2": 3, "3": 3, "4": 2, "5": 4,
+      "6": 4, "7": 3, "8": 1, "9": 4, "10": 4,
+      "11": 2, "12": 4, "13": 4, "14": 4, "15": 1,
+      "16": 1, "17": 2, "18": 1, "19": 4, "20": 3,
+      "21": 2, "22": 3, "23": 1, "24": 2, "25": 3
+    }
+  },
+  "2026-prelim-st-nicholas": {
+    "school": "St Nicholas",
+    "read": "by eye from work-en-ans/2026-prelim-st-nicholas/pages/page-002.png (page-001.png is a stray question-booklet page, see _note)",
+    "answers": {
+      "1": 2, "2": 3, "3": 1, "4": 3, "5": 2,
+      "6": 2, "7": 3, "8": 3, "9": 3, "10": 1,
+      "11": 3, "12": 3, "13": 4, "14": 4, "15": 1,
+      "16": 1, "17": 2, "18": 4, "19": 1, "20": 1,
+      "21": 2, "22": 4, "23": 3, "24": 1, "25": 3
+    }
+  },
+  "2026-prelim-tao-nan": {
+    "school": "Tao Nan",
+    "read": "by eye from work-en-ans/2026-prelim-tao-nan/pages/page-001.png",
+    "answers": {
+      "1": 3, "2": 1, "3": 1, "4": 1, "5": 1,
+      "6": 4, "7": 3, "8": 1, "9": 1, "10": 4,
+      "11": 4, "12": 3, "13": 3, "14": 4, "15": 1,
+      "16": 4, "17": 3, "18": 1, "19": 4, "20": 4,
+      "21": 3, "22": 2, "23": 1, "24": 2, "25": 4
     }
   }
 }

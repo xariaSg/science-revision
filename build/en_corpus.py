@@ -82,8 +82,21 @@ PART_RE = re.compile(r"Booklet\s*(?P<booklet>[AB])|Answers?", re.IGNORECASE)
 FOLDER_PART_RE = re.compile(
     r"^\s*(?:Paper\s*2\s*)?(?:Booklet\s*(?P<booklet>[AB])|Answers?(?:\s*Key)?)\s*$",
     re.IGNORECASE)
-FOLDER_FILE_RE = re.compile(r"^(?P<year>\d{4})\s*-\s*(?P<school>.+?)\.pdf$",
+# "2025-Nan Hua.pdf" and, from the 2026 folders, "2026_RedSwastika.pdf" -- the
+# same directory-per-part layout filed under two different separator/spacing
+# conventions. Both are read rather than one converted into the other, for
+# discover()'s own reason: a pipeline that only accepts the shape it was
+# written for turns a correctly filed paper into one that silently does not
+# exist.
+FOLDER_FILE_RE = re.compile(r"^(?P<year>\d{4})\s*[-_]\s*(?P<school>.+?)\.pdf$",
                             re.IGNORECASE)
+# Splits "RedSwastika" -> "Red Swastika" before it is shown to a child --
+# camelCase names have no spaces anywhere ("2026_RedSwastika.pdf",
+# "2026_StNicholas.pdf"), unlike "2025-Nan Hua.pdf", so the word boundary has
+# to be read off the capitalisation rather than assumed away. Matches
+# build/cn_prelims.py's CAMEL_BOUNDARY, which solves the identical problem for
+# the same source convention.
+CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 # A whole-exam compilation's own name. Matched only to *report* one that has been
 # filed inside a part directory, where the directory would otherwise vouch for it:
 # a compilation ingested as a Booklet A is a 40-page booklet holding Paper 1, Paper
@@ -94,8 +107,21 @@ COMPILATION_RE = re.compile(r"P6[-_\s]*English[-_\s]*Prelim", re.IGNORECASE)
 
 
 def slugify(school: str) -> str:
-    """"Red Swastika" -> "red-swastika". Directory- and URL-safe."""
-    return re.sub(r"[^a-z0-9]+", "-", school.lower()).strip("-")
+    """"Red Swastika" / "RedSwastika" -> "red-swastika". Directory- and URL-safe."""
+    spaced = CAMEL_BOUNDARY.sub(" ", school)
+    return re.sub(r"[^a-z0-9]+", "-", spaced.lower()).strip("-")
+
+
+def display_name(school: str) -> str:
+    """"RedSwastika" -> "Red Swastika"; "Nan Hua" is left untouched.
+
+    The registry's `school` field is what app/papers.py prints on a button
+    with no further formatting (§11.6), so a name lifted straight from a
+    camelCase, space-free filename must be split here rather than shown to
+    the child as "RedSwastika".
+    """
+    spaced = CAMEL_BOUNDARY.sub(" ", school)
+    return re.sub(r"[_\s]+", " ", spaced).strip()
 
 
 def part_of(text: str) -> str | None:
@@ -119,7 +145,8 @@ def classify(path: Path) -> tuple[int, str, str] | None:
         part = part_of(match.group("part"))
         if part is None:                                    # pragma: no cover
             return None
-        return int(match.group("year")), match.group("school").strip(), part
+        school = display_name(match.group("school").strip())
+        return int(match.group("year")), school, part
 
     folder = FOLDER_PART_RE.match(path.parent.name)
     named = FOLDER_FILE_RE.match(path.name)
@@ -127,7 +154,8 @@ def classify(path: Path) -> tuple[int, str, str] | None:
         return None
     booklet = folder.group("booklet")
     part = booklet.upper() if booklet else "Answers"
-    return int(named.group("year")), named.group("school").strip(), part
+    school = display_name(named.group("school").strip())
+    return int(named.group("year")), school, part
 
 
 def paper_id(year: int, school: str) -> str:

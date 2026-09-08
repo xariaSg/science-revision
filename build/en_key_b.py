@@ -56,6 +56,7 @@ from ocr_vision import Line, page_lines, recognise
 REPO = Path(__file__).resolve().parent.parent
 WORK_EN_B = REPO / "work-en-b"
 WORK_EN_ANS = REPO / "work-en-ans"
+VERIFIED_B_KEY = REPO / "review" / "en-b-answers.json"
 
 # A question number standing alone in the left cell of its row.
 NUMBER_RE = re.compile(r"^(?P<number>\d{1,3})\s*[.)]?$")
@@ -346,6 +347,47 @@ def _read_from_text(paper: str, answerable: dict[int, str]
     return answers, [], "PDF text layer (typed, not scanned)"
 
 
+def verified_key_b(paper: str, answerable: dict[int, str]) -> dict[int, dict]:
+    """A key read off the scan by a person and recorded in the repo.
+
+    The same mechanism and the same terms as review/en-mcq-key.json
+    (build/en_key.py, CLAUDE.md 10.4): it fills what the scan could not
+    establish and is checked against everything the scan did, so it can fill a
+    gap but can never quietly overrule the page.
+    """
+    if not VERIFIED_B_KEY.exists():
+        return {}
+    entry = json.loads(VERIFIED_B_KEY.read_text()).get(paper, {})
+    return {int(q): parse_answer(answerable[int(q)], body)
+            for q, body in entry.get("answers", {}).items()
+            if int(q) in answerable}
+
+
+def verified_fully(paper: str) -> bool:
+    """Whether review/en-b-answers.json vouches for every one of this paper's
+    answers on its own, without the column reader's corroboration.
+
+    CHIJ OLGS's sub-header ("BOOKLET B" / "Question" / "Answer" printed again
+    partway down its own column, CLAUDE.md's own layout note for this school)
+    shifts the column reader's row alignment for everything beneath it -- it
+    reads Q34 as "K" and Q43 as "not", both confirmed wrong against the scan
+    and both, tellingly, the *next* row's real answer read one question early.
+    That is a geometry bug in the reader for this one layout, not a
+    disagreement to referee row by row: forcing every mis-aligned row through
+    the ordinary disagreement gate would refuse the whole key over a handful
+    of rows a person has already read correctly, and quietly favouring
+    whichever side merely looks less noisy would be exactly the guessing
+    CLAUDE.md 1.6.1 rules out. So a paper marked here skips the column reader
+    entirely, the same bypass a native PDF text layer already gets in
+    `extract()` -- one demonstrated-unreliable source is dropped rather than
+    argued with.
+    """
+    if not VERIFIED_B_KEY.exists():
+        return False
+    return bool(json.loads(VERIFIED_B_KEY.read_text())
+               .get(paper, {}).get("fully_verified"))
+
+
 def extract(paper: str, school: str | None = None) -> dict:
     """Booklet B's key, for the questions the app is built to mark.
 
@@ -357,12 +399,47 @@ def extract(paper: str, school: str | None = None) -> dict:
     answerable = {q: mode for q, mode in modes.items() if mode != "not_built"}
 
     ans_pdf = en_corpus.part_path(paper, "Answers")
-    if ans_pdf.exists() and en_key_text.has_native_text(ans_pdf):
+    if verified_fully(paper):
+        answers, repairs, read_from = {}, [], "review/en-b-answers.json (by eye; the column reader misaligns rows on this layout)"
+    elif ans_pdf.exists() and en_key_text.has_native_text(ans_pdf):
         answers, repairs, read_from = _read_from_text(paper, answerable)
     else:
         answers, repairs, read_from = _read_from_images(paper, answerable)
 
     warnings: list[str] = []
+
+    verified = verified_key_b(paper, answerable)
+    if verified:
+        # Compared on "text" -- the normalised joined string every mode's
+        # entry carries -- rather than "accept", since a verified answer's
+        # accept set is built the same way parse_answer builds the scan's own
+        # and would trivially agree even when the underlying text differs.
+        # Case- and whitespace-insensitive: unlike Booklet A's single option
+        # digit (build/en_key.py), a free-text word or sentence read off the
+        # scan can differ from the by-eye transcription in capitalisation
+        # alone (a line-initial capital Vision keeps and a lowercase word as
+        # printed, say) without the two actually disagreeing about the word.
+        def _norm(text: str) -> str:
+            return " ".join(text.split()).lower()
+        disagreed = sorted(q for q, entry in answers.items()
+                           if q in verified
+                           and _norm(verified[q]["text"]) != _norm(entry["text"]))
+        if disagreed:
+            # Refuse. One of the two readings is wrong and there is nothing
+            # here that says which, so nothing is marked against either.
+            warnings.append(
+                f"review/en-b-answers.json disagrees with the scan on "
+                f"{['Q%d' % q for q in disagreed]}: recorded "
+                f"{[verified[q]['text'] for q in disagreed]} against "
+                f"{[answers[q]['text'] for q in disagreed]} read off the page")
+            answers = {}
+        else:
+            filled = sorted(set(verified) - set(answers))
+            answers = {**answers, **verified}
+            read_from = (f"{read_from}, confirmed by review/en-b-answers.json"
+                        + (f" (which supplied {['Q%d' % q for q in filled]})"
+                           if filled else ""))
+
     missing = sorted(set(answerable) - set(answers))
     if missing:
         warnings.append(f"no answer read for {missing}")
