@@ -127,6 +127,20 @@ def save_attempt(payload: dict) -> dict:
     return row
 
 
+def attempted_papers(subject: str) -> set[str]:
+    """Paper ids with at least one logged attempt, for one subject.
+
+    For the paper picker: a paper is "attempted" once anything at all has been
+    logged against it, regardless of which booklet or how many rows -- the
+    picker is marking "has she had a go at this one", not tallying a score.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT paper FROM attempts WHERE subject = ? AND paper != ''",
+            (subject,)).fetchall()
+    return {row["paper"] for row in rows}
+
+
 def list_attempts(paper: str | int | None = None, question: int | None = None,
                   booklet: str | None = None,
                   subject: str = "science",

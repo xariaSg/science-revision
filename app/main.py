@@ -32,8 +32,8 @@ from fastapi.staticfiles import StaticFiles
 import chinese
 import english
 import papers as paper_ids
-from db import (by_paper_and_day, day_of, init_db, kinds_present, list_attempts,
-                percent, save_attempt)
+from db import (attempted_papers, by_paper_and_day, day_of, init_db, kinds_present,
+                list_attempts, percent, save_attempt)
 from grade import GradingUnavailable, grade
 from stt import transcribe_bytes, model_name
 
@@ -144,15 +144,32 @@ def subjects() -> list[dict]:
     # the mode first can list only the papers that mode is built for.
     by_mode = {"science": {"A": mcq_papers_built(), "B": indexed_papers()},
                "english": {"A": english.indexed("A"), "B": english.indexed("B")}}
-    return [{**subject,
-             "papers": [paper_ids.describe(p) for p in built[subject["id"]]],
-             "groups": paper_ids.grouped(built[subject["id"]]),
-             "modes": [{**mode,
-                        "groups": paper_ids.grouped(
-                            by_mode[subject["id"]][mode["id"]])}
-                       for mode in subject["modes"]]
-             if subject["id"] in by_mode else subject["modes"]}
-            for subject in SUBJECTS if built.get(subject["id"])]
+
+    out = []
+    for subject in SUBJECTS:
+        papers = built.get(subject["id"])
+        if not papers:
+            continue
+        # A paper is "attempted" once anything at all is logged against it
+        # (db.attempted_papers), so the picker can tell a fresh paper from one
+        # she has already had a go at -- the subject id doubles as the
+        # attempt log's own `subject` column (CLAUDE.md section 8).
+        attempted = attempted_papers(subject["id"])
+
+        def described(paper: str) -> dict:
+            return {**paper_ids.describe(paper), "attempted": paper in attempted}
+
+        out.append({
+            **subject,
+            "papers": [described(p) for p in papers],
+            "groups": [{**group, "papers": [described(p["paper"]) for p in group["papers"]]}
+                       for group in paper_ids.grouped(papers)],
+            "modes": [{**mode,
+                       "groups": paper_ids.grouped(by_mode[subject["id"]][mode["id"]])}
+                      for mode in subject["modes"]]
+            if subject["id"] in by_mode else subject["modes"],
+        })
+    return out
 
 
 def paper_dir(paper: str) -> Path:

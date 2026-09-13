@@ -588,13 +588,14 @@ function showScreen(name) {
 
 const plural = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
-function cardButton({ title, hint, meta, onPick }) {
+function cardButton({ title, hint, meta, attempted, onPick }) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "card-pick";
+  button.className = attempted ? "card-pick attempted" : "card-pick";
   button.innerHTML = `<span class="card-title">${title}</span>`
     + (hint ? `<span class="card-hint">${hint}</span>` : "")
-    + (meta ? `<span class="card-meta">${meta}</span>` : "");
+    + (meta ? `<span class="card-meta">${meta}</span>` : "")
+    + (attempted ? `<span class="card-badge">✓ Attempted</span>` : "");
   button.addEventListener("click", onPick);
   return button;
 }
@@ -658,6 +659,7 @@ function renderHome() {
       cards.append(cardButton({
         title: paper.label,
         hint: paper.prelim ? `${paper.year} prelim` : "",
+        attempted: paper.attempted,
         onPick: () => {
           home.paper = paper;
           // Nothing to ask for a subject with no modes -- Chinese, which
