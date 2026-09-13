@@ -206,9 +206,6 @@ textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--acce
   #pages { max-height: 50vh; }
   /* No horizontal split to drag when the panes are stacked. */
   #splitter { display: none; }
-  /* "Booklet A" alone still says which one you are in, and the pair then fits on a
-     line beside the pickers instead of wrapping to four. */
-  .booklets button span { display: none; }
 }
 
 /* ---------------------------------------------------------------- review UI */
@@ -518,23 +515,11 @@ main.single { grid-template-columns: 1fr; }
          padding-left: 10px; border-left: 2px solid var(--line); }
 .dnote { margin: 4px 0 0 10px; font-size: 12.5px; color: var(--warn); }
 
-/* ------------------------------------------------------- booklet A: the MCQs */
+/* --------------------------------------------------------- multiple choice */
 
-/* A segmented control rather than a third dropdown: which booklet you are in
-   changes the whole right-hand pane, so it should be visible at a glance and not
-   hidden behind a click. */
-.booklets { display: flex; flex: none; }
-.booklets button {
-  font-size: 13px; padding: 6px 12px; color: var(--muted);
-  border-radius: 0; margin-left: -1px; white-space: nowrap;
-}
-.booklets button:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
-.booklets button:last-child { border-radius: 0 8px 8px 0; }
-.booklets button.on {
-  background: var(--accent-soft); border-color: var(--accent);
-  color: var(--accent); font-weight: 600; z-index: 1;
-}
-
+/* The shared base for every option button across Booklet A (Science, English)
+   and Chinese's choice questions -- the whole-paper screens below layer their
+   own sizing and chosen/correct/wrong colours on top of this. */
 .options { display: flex; gap: 10px; flex-wrap: wrap; }
 .option {
   flex: 1 1 0; min-width: 64px;
@@ -545,31 +530,6 @@ main.single { grid-template-columns: 1fr; }
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 .option:hover { border-color: var(--accent); }
-.option input { accent-color: var(--accent); width: 17px; height: 17px; cursor: pointer; }
-.optnum { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
-/* Selected, before it is marked. */
-.option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
-.option:has(input:disabled) { cursor: default; }
-.option:has(input:disabled):hover { border-color: var(--line); }
-
-/* After marking. The right answer is always shown, whether or not it was picked —
-   seeing it beside your own choice is the part that teaches. */
-.option.right {
-  border-color: var(--good); background: #eaf6ef; color: var(--good);
-}
-.option.right::after { content: "✓"; font-weight: 700; }
-.option.wrong {
-  border-color: #d9a9a2; background: #fdf3f1; color: #a33a2b;
-}
-.option.wrong::after { content: "✗"; font-weight: 700; }
-.option.right:hover { border-color: var(--good); }
-.option.wrong:hover { border-color: #d9a9a2; }
-
-.mcqline { font-size: 15px; margin: 4px 0 10px; }
-.mcq .feedback .caveat {
-  margin-top: 10px; font-size: 12.5px; color: var(--warn);
-  background: var(--warn-soft); padding: 7px 9px; border-radius: 6px;
-}
 
 /* ------------------------------------------------------------------- screens */
 
@@ -627,58 +587,73 @@ main.single { grid-template-columns: 1fr; }
 .card-hint, .card-meta { font-size: 13px; color: var(--muted); }
 .home-foot { margin-top: 32px; text-align: center; }
 
-/* ------------------------------------------- whole-paper screens: 华文 and English
+/* ------------------------------------ whole-paper screens: 华文, English, MCQ
 
-   Chinese Paper 2 and English Paper 2 are the same *kind* of screen -- the whole
-   booklet scrolling on one side, every question's answer card on the other, and
-   one mark at the end -- because both papers put their questions inside passages
-   (CLAUDE.md 7.3). So the two share these rules rather than each having its own
-   copy, and every selector below names both. Only the split default differs:
-   each screen keeps its own custom property. */
+   Chinese Paper 2, English Paper 2 and Science's Booklet A are the same *kind*
+   of screen -- the whole booklet scrolling on one side, every question's answer
+   card on the other, and one mark at the end. Chinese and English need this
+   because both papers put their questions inside passages (CLAUDE.md 7.3);
+   Science Booklet A's questions stand alone, but answering "the whole booklet,
+   then submit" is the same interaction, so it shares these rules rather than
+   carrying its own copy. Only the split default differs: each screen keeps its
+   own custom property. */
 
 
 /* Each screen holds a whole booklet rather than one question, so the paper pane
-   is worth more room than Science's default -- and each remembers its own width,
-   because a Chinese page and an English page are not the same shape. */
+   is worth more room than Science Booklet B's default -- and each remembers its
+   own width, because a Chinese page, an English page and a Science page are not
+   the same shape. */
 #cnPractice main { grid-template-columns: var(--cn-split, 50%) 10px minmax(0, 1fr); }
 #enPractice main { grid-template-columns: var(--en-split, 50%) 10px minmax(0, 1fr); }
+#mcqPractice main { grid-template-columns: var(--mcq-split, 50%) 10px minmax(0, 1fr); }
 #cnSplitter,
-#enSplitter {
+#enSplitter,
+#mcqSplitter {
   align-self: stretch; min-height: 200px; cursor: col-resize;
   position: relative; border-radius: 999px; touch-action: none;
 }
 #cnSplitter::before,
-#enSplitter::before { content: ""; position: absolute; inset: 0 -5px; }
+#enSplitter::before,
+#mcqSplitter::before { content: ""; position: absolute; inset: 0 -5px; }
 #cnSplitter::after,
-#enSplitter::after {
+#enSplitter::after,
+#mcqSplitter::after {
   content: ""; position: absolute; left: 50%; transform: translateX(-50%);
   top: 8px; bottom: 8px; width: 3px; border-radius: 999px;
   background: var(--line); transition: background 0.15s ease;
 }
 #cnSplitter:hover::after,
 #enSplitter:hover::after,
+#mcqSplitter:hover::after,
 #cnSplitter:focus-visible::after,
-#enSplitter:focus-visible::after { background: var(--accent); }
+#enSplitter:focus-visible::after,
+#mcqSplitter:focus-visible::after { background: var(--accent); }
 #cnSplitter:focus-visible,
-#enSplitter:focus-visible { outline: none; }
+#enSplitter:focus-visible,
+#mcqSplitter:focus-visible { outline: none; }
 
 #cnPaper,
-#enPaper { position: relative; }
+#enPaper,
+#mcqPaper { position: relative; }
 #cnPages,
-#enPages { overflow: auto; max-height: 88vh; border-radius: 8px; background: #eef0f4; }
+#enPages,
+#mcqPages { overflow: auto; max-height: 88vh; border-radius: 8px; background: #eef0f4; }
 .cn-page img,
-.en-page img { display: block; width: 100%; margin: 0 auto 10px; background: #fff; }
+.en-page img,
+.mcq-page img { display: block; width: 100%; margin: 0 auto 10px; background: #fff; }
 
 #cnAnswers,
-#enAnswers {
+#enAnswers,
+#mcqAnswers {
   max-height: 92vh; overflow: auto;
   /* The offsetParent a selected card's own offsetTop is measured from, so
      jumping to it can use the same offsetTop-diff scrollTop assignment
-     showPage() already uses for the paper pane's #cnPaper/#enPaper. */
+     showPage() already uses for the paper pane's #cnPaper/#enPaper/#mcqPaper. */
   position: relative;
 }
 #cnList,
-#enList { display: flex; flex-direction: column; gap: 10px; }
+#enList,
+#mcqList { display: flex; flex-direction: column; gap: 10px; }
 
 .cn-section,
 .en-section {
@@ -701,7 +676,8 @@ main.single { grid-template-columns: 1fr; }
 .en-section .hint { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: 400; }
 
 .cn-card,
-.en-card {
+.en-card,
+.mcq-card {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px 12px;
@@ -709,37 +685,49 @@ main.single { grid-template-columns: 1fr; }
   scroll-margin-top: 10px;
 }
 .cn-card.current,
-.en-card.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.en-card.current,
+.mcq-card.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .cn-card.done,
-.en-card.done { background: #fbfcfd; }
+.en-card.done,
+.mcq-card.done { background: #fbfcfd; }
 .cn-card.done.right,
-.en-card.done.right { border-color: #bfe0cb; background: #f6fbf8; }
+.en-card.done.right,
+.mcq-card.done.right { border-color: #bfe0cb; background: #f6fbf8; }
 
 .cn-card-head,
-.en-card-head { display: flex; align-items: baseline; gap: 10px; }
+.en-card-head,
+.mcq-card-head { display: flex; align-items: baseline; gap: 10px; }
 .cn-card-head h3,
-.en-card-head h3 { margin: 0; font-size: 16px; }
+.en-card-head h3,
+.mcq-card-head h3 { margin: 0; font-size: 16px; }
 .cn-card-head .linkbtn.tiny,
-.en-card-head .linkbtn.tiny {
+.en-card-head .linkbtn.tiny,
+.mcq-card-head .linkbtn.tiny {
   margin-left: auto; font-size: 12px; padding: 2px 8px; border: none; color: var(--muted);
 }
 .cn-card-head .linkbtn.tiny:hover,
-.en-card-head .linkbtn.tiny:hover { color: var(--accent); }
+.en-card-head .linkbtn.tiny:hover,
+.mcq-card-head .linkbtn.tiny:hover { color: var(--accent); }
 .cn-card-body,
-.en-card-body { margin-top: 8px; }
+.en-card-body,
+.mcq-card-body { margin-top: 8px; }
 
 .options { display: flex; gap: 6px; flex-wrap: wrap; }
 .cn-card .option,
-.en-card .option {
+.en-card .option,
+.mcq-card .option {
   min-width: 40px; padding: 7px 0; flex: 0 0 auto;
   text-align: center; font-variant-numeric: tabular-nums;
 }
 .cn-card .option.chosen,
-.en-card .option.chosen { border-color: var(--accent); }
+.en-card .option.chosen,
+.mcq-card .option.chosen { border-color: var(--accent); }
 .cn-card .option.correct,
-.en-card .option.correct { border-color: var(--good); color: var(--good); background: #f2f9f5; }
+.en-card .option.correct,
+.mcq-card .option.correct { border-color: var(--good); color: var(--good); background: #f2f9f5; }
 .cn-card .option.wrong,
-.en-card .option.wrong { border-color: #d34a4a; color: #d34a4a; background: #fdf1f1; }
+.en-card .option.wrong,
+.mcq-card .option.wrong { border-color: #d34a4a; color: #d34a4a; background: #fdf1f1; }
 
 textarea.cn-answer { min-height: 0; margin-top: 0; line-height: 1.7; }
 /* A transformed sentence is a whole sentence and often a long one, so the box is
@@ -797,23 +785,38 @@ input.en-answer:read-only { background: #f6f7f9; color: var(--muted); }
 .en-actions .primary { border-color: var(--accent); color: var(--accent); }
 
 .cn-feedback:not(:empty),
-.en-feedback:not(:empty) { margin-top: 10px; }
+.en-feedback:not(:empty),
+.mcq-feedback:not(:empty) { margin-top: 10px; }
 .cn-feedback .verdict,
-.en-feedback .verdict { margin: 0 0 4px; font-weight: 650; font-size: 15px; }
+.en-feedback .verdict,
+.mcq-feedback .verdict { margin: 0 0 4px; font-weight: 650; font-size: 15px; }
 .cn-feedback .verdict.ok,
-.en-feedback .verdict.ok { color: var(--good); }
+.en-feedback .verdict.ok,
+.mcq-feedback .verdict.ok { color: var(--good); }
 .cn-feedback .verdict.no,
-.en-feedback .verdict.no { color: #b4453f; }
+.en-feedback .verdict.no,
+.mcq-feedback .verdict.no { color: #b4453f; }
 .cn-feedback .verdict.part,
-.en-feedback .verdict.part { color: var(--warn); }
+.en-feedback .verdict.part,
+.mcq-feedback .verdict.part { color: var(--warn); }
 .cn-feedback .verdict .muted,
-.en-feedback .verdict .muted { font-weight: 400; color: var(--muted); font-size: 13px; }
+.en-feedback .verdict .muted,
+.mcq-feedback .verdict .muted { font-weight: 400; color: var(--muted); font-size: 13px; }
 .cn-feedback .note,
-.en-feedback .note { margin: 4px 0; font-size: 14.5px; line-height: 1.7; }
+.en-feedback .note,
+.mcq-feedback .note { margin: 4px 0; font-size: 14.5px; line-height: 1.7; }
 .cn-feedback .error,
-.en-feedback .error { color: #b4453f; font-size: 13.5px; margin: 4px 0; }
+.en-feedback .error,
+.mcq-feedback .error { color: #b4453f; font-size: 13.5px; margin: 4px 0; }
 .cn-feedback .source,
-.en-feedback .source { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.en-feedback .source,
+.mcq-feedback .source { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+/* Booklet A's explanation toggle and answer-source caveat, reusing the same
+   classes Booklet B's "reveal model answer" flow already styles. */
+.mcq-feedback .caveat {
+  margin-top: 10px; font-size: 12.5px; color: var(--warn);
+  background: var(--warn-soft); padding: 7px 9px; border-radius: 6px;
+}
 
 .kps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .kps .kp { display: flex; gap: 8px; align-items: baseline; font-size: 14px; line-height: 1.6; }
@@ -848,21 +851,26 @@ input.en-answer:read-only { background: #f6f7f9; color: var(--muted); }
 .selfmark button.on { border-color: var(--good); color: var(--good); background: #f2f9f5; }
 
 #cnScore,
-#enScore { font-size: 13px; color: var(--muted); align-self: center; }
+#enScore,
+#mcqScore { font-size: 13px; color: var(--muted); align-self: center; }
 #cnScore strong,
-#enScore strong { color: var(--ink); font-weight: 650; }
+#enScore strong,
+#mcqScore strong { color: var(--ink); font-weight: 650; }
 #cnScore .dot,
-#enScore .dot { opacity: 0.5; margin: 0 2px; }
+#enScore .dot,
+#mcqScore .dot { opacity: 0.5; margin: 0 2px; }
 /* Paired with the width/height attributes: keeps the reserved box in the page's
    real proportions at any zoom, so an unloaded page is exactly as tall as a
    loaded one. */
 .cn-page img,
-.en-page img { height: auto; }
+.en-page img,
+.mcq-page img { height: auto; }
 
-/* -------------------------------------------------- chinese: finish & results */
+/* --------------------------------------- chinese/english/mcq: finish & results */
 
 #cnFinishBar,
-#enFinishBar {
+#enFinishBar,
+#mcqFinishBar {
   position: sticky;
   bottom: -10px;      /* cancels the pane's own bottom padding */
   display: flex;
@@ -873,46 +881,58 @@ input.en-answer:read-only { background: #f6f7f9; color: var(--muted); }
   border-top: 1px solid var(--line);
 }
 #cnFinishBar[hidden],
-#enFinishBar[hidden] { display: none; }
+#enFinishBar[hidden],
+#mcqFinishBar[hidden] { display: none; }
 /* The last card must clear the bar rather than sit behind it. */
 #cnList,
-#enList { padding-bottom: 6px; }
+#enList,
+#mcqList { padding-bottom: 6px; }
 #cnFinish,
-#enFinish {
+#enFinish,
+#mcqFinish {
   border-color: var(--accent); color: var(--accent);
   font-weight: 600; white-space: nowrap;
 }
 #cnFinish:disabled,
-#enFinish:disabled { border-color: var(--line); color: var(--muted); }
+#enFinish:disabled,
+#mcqFinish:disabled { border-color: var(--line); color: var(--muted); }
 #cnProgress,
-#enProgress { font-size: 13px; color: var(--muted); }
+#enProgress,
+#mcqProgress { font-size: 13px; color: var(--muted); }
 
 /* Answered, but not yet marked — a quiet "this one is done", carrying no verdict. */
 .cn-card.answered:not(.marked),
-.en-card.answered:not(.marked) { border-color: #c8d4e6; }
+.en-card.answered:not(.marked),
+.mcq-card.answered:not(.marked) { border-color: #c8d4e6; }
 .cn-card .option.chosen,
-.en-card .option.chosen {
+.en-card .option.chosen,
+.mcq-card .option.chosen {
   border-color: var(--accent); color: var(--accent); background: var(--accent-soft);
 }
 /* Once marked, the verdict outranks the selection: an option that was both
    chosen and correct must read as correct, not merely as picked. */
 .cn-card.marked .option.correct,
-.en-card.marked .option.correct {
+.en-card.marked .option.correct,
+.mcq-card.marked .option.correct {
   border-color: var(--good); color: var(--good); background: #f2f9f5;
 }
 .cn-card.marked .option.wrong,
-.en-card.marked .option.wrong {
+.en-card.marked .option.wrong,
+.mcq-card.marked .option.wrong {
   border-color: #d34a4a; color: #d34a4a; background: #fdf1f1;
 }
 .cn-card.marked .option.chosen:not(.correct):not(.wrong),
-.en-card.marked .option.chosen:not(.correct):not(.wrong) {
+.en-card.marked .option.chosen:not(.correct):not(.wrong),
+.mcq-card.marked .option.chosen:not(.correct):not(.wrong) {
   border-color: var(--line); color: var(--ink); background: var(--panel);
 }
 .cn-card.marked .option:disabled,
-.en-card.marked .option:disabled { opacity: 1; }
+.en-card.marked .option:disabled,
+.mcq-card.marked .option:disabled { opacity: 1; }
 
 #cnSummary,
-#enSummary {
+#enSummary,
+#mcqSummary {
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius);
@@ -921,17 +941,23 @@ input.en-answer:read-only { background: #f6f7f9; color: var(--muted); }
   background: var(--accent-soft);
 }
 #cnSummary .label,
-#enSummary .label {
+#enSummary .label,
+#mcqSummary .label {
   margin: 0; font-size: 12px; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--accent);
 }
 #cnSummary .total,
-#enSummary .total { margin: 2px 0 6px; font-size: 15px; }
+#enSummary .total,
+#mcqSummary .total { margin: 2px 0 6px; font-size: 15px; }
 #cnSummary .total strong,
-#enSummary .total strong { font-size: 30px; letter-spacing: -0.02em; }
+#enSummary .total strong,
+#mcqSummary .total strong { font-size: 30px; letter-spacing: -0.02em; }
 #cnSummary .total span,
-#enSummary .total span { color: var(--muted); }
+#enSummary .total span,
+#mcqSummary .total span { color: var(--muted); }
 #cnSummary .muted,
-#enSummary .muted { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+#enSummary .muted,
+#mcqSummary .muted { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
 #cnSummary button,
-#enSummary button { background: var(--panel); }
+#enSummary button,
+#mcqSummary button { background: var(--panel); }

@@ -314,6 +314,21 @@ def mcq_papers_built() -> list[str]:
     return paper_ids.discover(WORK_A)
 
 
+def mcq_page_sizes(paper: str) -> list[dict]:
+    """Rendered pixel size of every Booklet A page, for the UI to reserve layout
+    with -- the same reason chinese.page_sizes() exists (a lazy-loaded page has
+    no height until it loads, so an unmeasured "jump to page 12" lands near the
+    top). work-a's manifest holds "pages" at the top level, not nested the way
+    the Chinese/English manifests are.
+    """
+    manifest = mcq_dir(paper) / "manifest.json"
+    if not manifest.exists():
+        return []
+    data = json.loads(manifest.read_text())
+    return [{"page": p["page_number"], "width": p["width"], "height": p["height"]}
+            for p in data.get("pages", [])]
+
+
 @app.get("/api/mcq/papers")
 def mcq_papers() -> list[dict]:
     out = []
@@ -342,6 +357,16 @@ def mcq_questions(paper: str) -> dict:
         "marks_source": data.get("marks_source"),
         "marks_per_question": marks,
         "stated_total_marks": data["stated_total_marks"],
+        # For the whole-booklet screen to render every page up front, the way
+        # Chinese and English's Booklet A screens already do. The paper's own
+        # printed mark total is not a safe total to show instead (some prelim
+        # scans OCR the bracket into a spurious leading digit -- CLAUDE.md
+        # section 10.3 -- so 30 questions at 2 marks each can carry a stated
+        # total nowhere near 60); the true total is always marks_per_question
+        # times the questions actually found, which is what summing each
+        # question's own "marks" below gives the UI.
+        "pages": data["num_pages"],
+        "page_sizes": mcq_page_sizes(paper),
         "questions": [{"question": q["question"], "pages": q["pages"],
                        "marks": marks}
                       for q in data["questions"]],

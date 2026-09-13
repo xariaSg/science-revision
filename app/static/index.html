@@ -21,17 +21,15 @@
     </footer>
   </div>
 
-  <!-- Science: one question at a time, picked from the header. -->
+  <!-- Science Booklet B: one written question at a time, picked from the header.
+       Booklet A is multiple choice and lives in its own screen (#mcqPractice)
+       below, the same whole-paper-at-once shape as Chinese and English. -->
   <div id="practice" class="screen" hidden>
     <header>
       <h1><button id="sciHome" class="crumb" type="button">‹ Papers</button>
         <span id="sciTitle">Science</span></h1>
       <div class="pickers">
         <label>Paper <select id="paper"></select></label>
-        <div class="booklets" role="group" aria-label="Which booklet">
-          <button type="button" data-booklet="A">Booklet A<span> · multiple choice</span></button>
-          <button type="button" data-booklet="B">Booklet B<span> · written</span></button>
-        </div>
         <label>Question <select id="question"></select></label>
       </div>
       <div class="nav">
@@ -58,6 +56,49 @@
       <section id="answers" aria-label="Your answers">
         <div id="answerHead"></div>
         <div id="parts"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Science Booklet A: multiple choice, the whole booklet at once -- the same
+       shape as the Chinese and English Booklet A screens below. Options are
+       printed on the scan (sometimes as pictures), so the paper scrolls on one
+       side and every question's four-option card sits on the other; nothing is
+       marked until Finish, and answers can be changed freely up to then. -->
+  <div id="mcqPractice" class="screen" hidden>
+    <header>
+      <h1><button id="mcqHome" class="crumb" type="button">‹ Papers</button>
+        <span id="mcqTitle">Science</span></h1>
+      <div class="pickers">
+        <label>Go to <select id="mcqJump"></select></label>
+      </div>
+      <div class="nav">
+        <span id="mcqScore" class="score"></span>
+        <a href="/progress" class="linkbtn">Progress</a>
+      </div>
+    </header>
+
+    <main>
+      <section id="mcqPaper" aria-label="Question paper">
+        <div class="zoom">
+          <button data-mcqzoom="out" type="button">−</button>
+          <span id="mcqZoomLabel">Fit</span>
+          <button data-mcqzoom="in" type="button">+</button>
+        </div>
+        <div id="mcqPages"></div>
+      </section>
+
+      <div id="mcqSplitter" role="separator" aria-orientation="vertical" tabindex="0"
+           aria-label="Resize the paper and answer panes"
+           title="Drag to resize · double-click to reset"></div>
+
+      <section id="mcqAnswers" aria-label="Your answers">
+        <div id="mcqSummary" hidden></div>
+        <div id="mcqList"></div>
+        <div id="mcqFinishBar">
+          <button id="mcqFinish" class="primary" type="button">Finish and see my marks</button>
+          <span id="mcqProgress"></span>
+        </div>
       </section>
     </main>
   </div>
@@ -147,6 +188,7 @@
 
   <script src="/chinese.js"></script>
   <script src="/english.js"></script>
+  <script src="/mcq.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
