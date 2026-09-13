@@ -1235,6 +1235,167 @@ The two ordering constraints are the ones §1.6.1 and §7.7 already document, fo
 the same reason: a key that is short at the *end* leaves no gap in the sequence
 for anyone to notice, so only the booklet's own question count reveals it.
 
+### 10.7 The 2026 prelims
+
+Twelve schools now, sourced two different ways. Eight arrived already split into
+the same MCQ / OEQ / Answer Key trio §10.2 calls a gift — NanChiau, NanHua,
+Nanyang, PLMGS, Raffles, RedSwastika, StNicholas, TaoNan — and were built first.
+Two more, ACSJ and AiTong, arrived only as whole-exam compilations, the same
+shape §10.2 says the 2020–2025 years are stuck in; the gift did not apply to
+them and they were split by hand after finding Booklet A/B/Answers boundaries by
+inspecting the scan directly (`(Go on to Booklet B)` / `End of booklet A`
+footers, a stated `This booklet consists of N printed pages` on each cover),
+the same maneuver §12.5 already used once for a Chinese paper stuck in the same
+shape. The split PDFs were written back into the OneDrive source's own
+`MCQ/`, `OEQ/`, `Answer Key/` folders as `2026_ACSJ.pdf` / `2026_AiTong.pdf`,
+matching the naming the other eight already use, so a future `prelims.py` run
+needs no special case for them. Two more still, HenryPark and MGS, arrived
+mid-build already split the same way as the first eight.
+
+**All twelve index to 30 Booklet A questions and 60 marks** — not the 28 the
+2025 prelims share with most of the PSLE corpus (§10.3). Nothing was hardcoded
+to expect this; `index_mcq.py` reads it off each paper's own range statement
+and total exactly as it does for the 2025 schools, and it happens to come out
+the same across the whole 2026 cohort.
+
+#### 10.7.1 A third Booklet A key layout, read by eye for six schools
+
+`build/prelim_key.py`'s `ocr_evidence()` was built for two scanned-key shapes
+(§10.4): a single ruled cell holding both the number and the answer
+(`"13. ( 2 )"`), and a two-digit number beside a bare single digit in adjacent
+cells. **Six of the twelve 2026 schools print a third shape neither covers** —
+a plain header row of `Q1`..`Q10` with a row of bare digit answers directly
+beneath it, repeated three times for all 30 questions — and every one of the
+six therefore has **no automated corroboration at all**, the same honest gap
+2025's PLMGS/Raffles/StNicholas/TaoNan already have (§10.4's note): ACSJ,
+AiTong, PLMGS, Raffles, StNicholas, TaoNan. Building a reader for this shape
+was not judged worth it for a corpus this size, the same call §11.4.1 and
+§12.2 already made for their own one-off scanned grids; all six keys were read
+directly off the 300 dpi render, committed to `review/prelim-mcq-key.json`,
+and cross-checked against whatever fragmentary OCR evidence exists the same
+way every other entry in that file is. ACSJ's grid sits under a heavy black
+watermark that fully occludes three cells (Q7, Q15, Q24); each was confirmed
+by cropping and zooming on the cell individually, where the watermark's own
+cutout lets the digit's white shape still show through. AiTong's grid is
+essentially unwatermarked.
+
+**HenryPark and MGS surfaced a fourth failure mode, on top of a genuine text
+layer.** Both have a real PDF text layer over their grid — unlike any of the
+six above — so `pair_runs()` should have read them exactly, and instead found
+0/30 and 1/30. The text layer substitutes confusable glyphs for several
+digits: HenryPark's stream reads `Ql` for `Q1` (digit 1 as lowercase L), `QS`
+for `Q5` (digit 5 as letter S — the identical bug 2025's PLMGS has on the same
+two questions, per the existing note in `review/prelim-mcq-key.json`), `QB`
+for `Q8` (digit 8 as letter B), and `QlO`/`QlS` for `Q10`/`Q15`; for at least
+Q5 the answer digit itself is missing from the stream entirely, not merely
+relabelled, so no regex fix on the label would have recovered it anyway. Both
+grids render correctly as images — a copy/paste-only bug, not a rendering
+one — so both were read by eye off the page instead, each read twice, and
+recorded in the same review file.
+
+#### 10.7.2 AiTong's Booklet B: three ways to lose a question, and a new
+review file to fix it
+
+Booklet B question numbering can fail even when a paper's Booklet A key reads
+cleanly. AiTong's cover states its own range plainly — "For question 31 to
+41, write your answers in this booklet" — but `index_questions.py` originally
+found only 7 of the 11: Q32, Q34, Q36 and Q38 vanished with no warning beyond
+`no question found for [...]`, each silently absorbed into whichever neighbour
+*was* recognised. Reading each real page directly (not the OCR text) turned
+up three distinct causes, all novel:
+
+* **A misread that lands out of range is invisible, not just wrong.** Both
+  readers misread Q32's `"32."` — tesseract dropped it to nothing, Vision read
+  `"82."` — and 82 falls outside the paper's own stated 31–41 range, so it is
+  filtered before it ever becomes a candidate. Nothing downstream can recover
+  a number neither reader ever actually proposed. (Q34 failed the same way:
+  tesseract garbled `"34."` into an unrelated word, `"sit."`, and Vision did no
+  better.)
+* **A misread that lands *in* range can crowd out the real neighbour.**
+  Q36's `"36."` was misread by Vision as `"34."` — in range, and a genuine
+  candidate — but by page order it sits *after* the real Q35 and *before* the
+  real Q37, so `choose_question_run`'s longest-run chooser has to pick between
+  keeping the real 35 or the phantom 34; it correctly kept 35, which is right,
+  but leaves Q36's own page an orphan with no anchor of its own.
+* **Vision's own tie-break rule can pick the wrong reader.** Both readers read
+  Q38's `"38."` and Q39's `"39."` correctly at first — the one place in this
+  paper tesseract had no trouble — but Vision separately misread *page 12's*
+  "38." as "39.", and `index_questions.py`'s policy of preferring Vision when
+  both readers name the same line (correct in every other case in this
+  corpus) let that wrong reading overwrite tesseract's right one. Q39 ended up
+  anchored to page 12 instead of page 13, absorbing both Sam's sand-pit
+  question and Paul's rice-cooker question under one label, while Q38
+  vanished.
+
+None of this is recoverable by `fill_question_gaps`'s existing position-based
+tier — it only ever *inserts* a candidate that exists but lost a tie, never
+overrides one that already won wrongly, and two of the three failures above
+have no correct candidate anywhere to insert. The fix is `review/
+question-positions.json`, `review/mcq-positions.json`'s exact precedent
+(§1.6.1) carried over from Booklet A to Booklet B: a human-verified
+question-number-to-starting-page mapping, confirmed by reading each page's own
+footer (`Question N continues on the next page` / `B-<n>`) against the cover,
+that `index_questions.py` now applies immediately after `choose_question_run`
+and before gap-filling — reassigning any page already claimed by the
+overridden number, then claiming the verified page from the top the same way
+an overleaf question already does elsewhere in this codebase. AiTong needed
+five entries (Q32→p2, Q34→p4, Q36→p8, Q38→p12, Q39→p13) and now indexes all 11
+questions cleanly. The mechanism is paper-scoped and empty for every other
+paper, so it changes nothing elsewhere — confirmed by re-running the full test
+suite and the other eleven papers' own indexing unchanged.
+
+One of the five is worth a specific note: Q34's real content turns out to
+span two thematically unrelated-looking scenarios — paper P/Q/R's fall time
+on p4, then a gliding mammal's skin on p5 — under one question number. That
+mismatch is real, not a sign the pages are mis-ordered: both parts test the
+same underlying idea, how surface area affects air resistance, from two
+angles.
+
+#### 10.7.3 ACSJ's Booklet B answers: a fourth label shape, not built
+
+`build/prelim_answers.py` already parses six ways a sub-part label appears
+inline with a question number or its answer text (its own module docstring
+lists them: `29a`, `29 / a Reproduce...`, `Q29(a)`, and so on). ACSJ prints a
+**seventh shape it has no case for**: a genuinely separate ruled table with
+`Qn`, the sub-part letter, the answer prose and the marks each in their own
+column, the sub-part letter never sharing a line with either the question
+number or the answer. The table reads cleanly by eye and mostly cleanly under
+Vision too — but Vision returns the sub-part *letters* as their own short,
+isolated line only once in the whole page (a stray "d"), so the parser (built
+to find a label sharing a line with its answer) has almost nothing to key on:
+ACSJ scaffolds 1 of 33 sub-parts against 16–31 of ~30 for every other school
+in this cohort. A column-aware reader could recover this the way
+`segment_answers.py` already does for the PSLE two-column answer pages, but
+was judged not worth building for one school out of twelve, the same call
+§7.8 and §11.9 make for their own one-off table shapes. ACSJ's Booklet B
+pages are served and self-marked against the original scan exactly as every
+unbuilt case elsewhere in this project is; its rubric scaffold is just
+correspondingly thin.
+
+#### 10.7.4 Coverage
+
+| School | Booklet A key source | Booklet B questions found | Answers scaffolded |
+|---|---|---|---|
+| NanChiau | scan, by eye (grid rotated 90°) | 11/11 | 22/32 |
+| NanHua | scan, by eye (bare 3-col grid) | 11/11 | 21/34 |
+| Nanyang | scan, by eye (column-major, confirmed with provider) | 3/11 | 9/9 |
+| PLMGS | scan, by eye (`Q1..Q30` grid) | 11/11 | 31/34 |
+| Raffles | scan, by eye (`Q1..Q30` grid) | 11/11 | 18/34 |
+| RedSwastika | scan, mostly automated | 10/10 | 30/31 |
+| StNicholas | scan, by eye (`Q1..Q30` grid) | 11/11 | 27/29 |
+| TaoNan | scan, by eye (`Q1..Q30` grid) | 11/11 | 20/29 |
+| ACSJ | scan, by eye (`Q1..Q30` grid, watermarked) | 10/10 | 1/33 |
+| AiTong | scan, by eye (`Q1..Q30` grid) | 11/11 (after §10.7.2's fix) | 29/33 |
+| HenryPark | scan, by eye (text layer corrupted) | 11/11 | 26/37 |
+| MGS | scan, by eye (text layer corrupted) | 11/11 | 16/23 |
+
+Nanyang's Booklet B (3 of 11 questions found) was already this bad before this
+pass and is recorded here for the first time rather than fixed: `index_questions.py`
+loses the run after Q33 and never recovers it, the same *shape* of failure
+§10.7.2 diagnoses and fixes for AiTong, but not touched here since doing it
+properly needs the same by-eye position work against Nanyang's own scan, which
+was out of scope for this pass.
+
 ---
 
 ## 11. English Paper 2

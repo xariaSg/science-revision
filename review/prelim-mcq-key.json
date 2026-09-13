@@ -51,7 +51,45 @@
     "which is why it still needed a person rather than the text layer alone.",
     "Raffles's own printed header reads 'TERM: PRELIM 2025', the same anomaly",
     "2026-prelim-taonan has -- confirmed with the provider that this is",
-    "nonetheless the correct 2026 key, same as TaoNan's."
+    "nonetheless the correct 2026 key, same as TaoNan's.",
+    "",
+    "2026-prelim-acsj, 2026-prelim-aitong: the two schools ingested after the rest",
+    "of this corpus, from a whole-exam compilation rather than an already-split",
+    "MCQ/OEQ/Answer Key triple (CLAUDE.md section 10.2's 'gift' did not apply to",
+    "these two; the booklet boundaries were found by inspecting the scan directly,",
+    "as section 12.5 already did once for a Chinese paper in the same shape). Both",
+    "print the same clean 'Q1'..'Q30' grid as 2026-prelim-taonan/plmgs/raffles/",
+    "stnicholas and get the same non-treatment from ocr_evidence() for the same",
+    "reason, so both have no automated corroboration at all. ACSJ's grid sits",
+    "under a heavy black watermark that fully occludes three cells (Q7, Q15,",
+    "Q24); each was confirmed by cropping and zooming directly on the obscured",
+    "cell rather than reading the surrounding row, since the watermark's cutout",
+    "lets the digit's white shape show through legibly once magnified. AiTong's",
+    "grid is essentially unwatermarked and every cell was read at a glance, then",
+    "the full grid re-read a second time before being recorded here. Both",
+    "papers' headers print 'TERM: PRELIM 2025', the same recurring template",
+    "anomaly as TaoNan's and Raffles's -- not re-confirmed with the provider",
+    "individually, on the strength of that established pattern.",
+    "",
+    "2026-prelim-henrypark, 2026-prelim-mgs: both have a genuine PDF text layer",
+    "over the grid (unlike every school above), so build/prelim_key.py's",
+    "pair_runs() should have read them exactly -- and instead found 0/30 and",
+    "1/30. The text layer's font substitutes confusable glyphs for several",
+    "digits: HenryPark's stream reads 'Ql' for 'Q1' (digit 1 as lowercase L),",
+    "'QS' for 'Q5' (digit 5 as letter S, the same bug 2026-prelim-plmgs has on",
+    "the same two questions per the note above), 'QB' for 'Q8' (digit 8 as",
+    "letter B) and 'QlO'/'QlS' for 'Q10'/'Q15' -- and for at least Q5, the",
+    "answer digit itself is missing from the stream entirely, not just",
+    "relabelled, so no regex fix on the label recovers it. Both grids render",
+    "correctly as images despite the corrupted text layer (a copy/paste-only",
+    "bug, not a rendering one), so both were read by eye off the page image",
+    "instead, each read twice.",
+    "",
+    "HenryPark's answer PDF is unusual in another way worth recording: it also",
+    "types out the Booklet B model answers in full prose per sub-part, which",
+    "none of the scanned-grid schools above have. Nothing here depends on",
+    "that -- it is a build/prelim_answers.py concern -- but it is why HenryPark",
+    "was not simply treated the same as the other scan-only schools."
   ],
   "2025-prelim-nanyang": {
     "school": "Nanyang",
@@ -148,6 +186,50 @@
       "15": 1, "16": 3, "17": 2, "18": 2, "19": 2, "20": 3, "21": 2,
       "22": 4, "23": 2, "24": 1, "25": 4, "26": 1, "27": 2, "28": 3,
       "29": 2, "30": 2
+    }
+  },
+  "2026-prelim-acsj": {
+    "school": "ACSJ",
+    "read": "by eye from work-ans/2026-prelim-acsj/pages/answer-001.png, read twice; Q7, Q15 and Q24 are fully covered by a heavy black watermark shape and were confirmed by cropping and zooming on each cell individually, where the watermark's own cutout lets the digit's white shape show through",
+    "answers": {
+      "1": 4, "2": 3, "3": 4, "4": 3, "5": 2, "6": 2, "7": 2,
+      "8": 3, "9": 3, "10": 2, "11": 3, "12": 2, "13": 4, "14": 2,
+      "15": 2, "16": 2, "17": 1, "18": 1, "19": 3, "20": 4, "21": 1,
+      "22": 2, "23": 3, "24": 4, "25": 2, "26": 3, "27": 4, "28": 2,
+      "29": 1, "30": 2
+    }
+  },
+  "2026-prelim-aitong": {
+    "school": "AiTong",
+    "read": "by eye from work-ans/2026-prelim-aitong/pages/answer-001.png, read twice; the grid is essentially unwatermarked and every cell is fully legible",
+    "answers": {
+      "1": 4, "2": 4, "3": 2, "4": 4, "5": 4, "6": 2, "7": 3,
+      "8": 2, "9": 4, "10": 3, "11": 1, "12": 2, "13": 2, "14": 1,
+      "15": 2, "16": 2, "17": 4, "18": 2, "19": 3, "20": 1, "21": 3,
+      "22": 4, "23": 1, "24": 1, "25": 3, "26": 2, "27": 2, "28": 4,
+      "29": 3, "30": 4
+    }
+  },
+  "2026-prelim-henrypark": {
+    "school": "HenryPark",
+    "read": "by eye from work-ans/2026-prelim-henrypark/pages/answer-001.png, read twice; the grid renders correctly as an image but its PDF text layer substitutes confusable glyphs for several digits (see _note) and was not usable",
+    "answers": {
+      "1": 1, "2": 4, "3": 1, "4": 2, "5": 3, "6": 2, "7": 3,
+      "8": 2, "9": 3, "10": 2, "11": 3, "12": 3, "13": 4, "14": 4,
+      "15": 3, "16": 2, "17": 4, "18": 3, "19": 1, "20": 1, "21": 4,
+      "22": 2, "23": 3, "24": 1, "25": 3, "26": 3, "27": 2, "28": 3,
+      "29": 4, "30": 3
+    }
+  },
+  "2026-prelim-mgs": {
+    "school": "MGS",
+    "read": "by eye from work-ans/2026-prelim-mgs/pages/answer-001.png, read twice; the grid renders correctly as an image but its PDF text layer is unreliable the same way HenryPark's is (see _note) and was not usable",
+    "answers": {
+      "1": 3, "2": 1, "3": 3, "4": 1, "5": 4, "6": 4, "7": 4,
+      "8": 2, "9": 4, "10": 3, "11": 3, "12": 1, "13": 4, "14": 4,
+      "15": 2, "16": 3, "17": 1, "18": 4, "19": 2, "20": 1, "21": 3,
+      "22": 3, "23": 3, "24": 2, "25": 4, "26": 3, "27": 2, "28": 3,
+      "29": 1, "30": 4
     }
   }
 }

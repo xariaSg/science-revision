@@ -310,6 +310,7 @@ def choose_question_run(candidates: list[tuple[int, int, int]],
 
 
 REVIEW_MARKS = REPO / "review" / "marks.json"
+REVIEW_POSITIONS = REPO / "review" / "question-positions.json"
 
 
 def verified_marks(paper: int | str) -> dict[str, int]:
@@ -323,6 +324,23 @@ def verified_marks(paper: int | str) -> dict[str, int]:
         return {}
     data = json.loads(REVIEW_MARKS.read_text())
     return {k: v for k, v in data.get(str(paper), {}).items() if isinstance(v, int)}
+
+
+def verified_positions(paper: int | str) -> dict[int, int]:
+    """Human-verified question-number -> starting-page, review/mcq-positions.json's
+    precedent carried over to Booklet B (see review/question-positions.json).
+
+    Both readers can land on the same wrong number at once (Vision overwriting a
+    correct tesseract read), or on none at all (a misread that falls outside the
+    stated range never becomes a candidate), and either way the question's own
+    content is silently absorbed by whichever neighbour was recognised. This is
+    the override of last resort once that has been confirmed by eye against the
+    scan -- it always wins, unlike fill_question_gaps's candidate-based recovery.
+    """
+    if not REVIEW_POSITIONS.exists():
+        return {}
+    data = json.loads(REVIEW_POSITIONS.read_text())
+    return {int(q): int(p) for q, p in data.get(str(paper), {}).items()}
 
 
 def index_paper(work: Path) -> dict:
@@ -396,6 +414,15 @@ def index_paper(work: Path) -> dict:
     accepted = choose_question_run(candidates, expected)
 
     repairs: list[str] = []
+    for number, page in verified_positions(paper).items():
+        if accepted.get((page, 0)) == number:
+            continue
+        for key in [k for k, v in accepted.items() if v == number]:
+            del accepted[key]
+        accepted.pop((page, 0), None)
+        accepted[(page, 0)] = number
+        repairs.append(f"Q{number}: moved to p{page} by "
+                       f"review/question-positions.json")
     repairs.extend(fill_question_gaps(candidates, accepted, expected, order))
     for page, (lines, width) in pages.items():
         marker_limit = width * MARKER_ZONE
